@@ -48,11 +48,13 @@ export default function BookingForm({
   services,
   creditBalance,
   depositPercent,
+  cancellationRefundHours,
   openDaysOfWeek,
 }: {
   services: Service[];
   creditBalance: number;
   depositPercent: number;
+  cancellationRefundHours: number;
   openDaysOfWeek: number[];
 }) {
   const [state, formAction, pending] = useActionState(bookAppointment, null);
@@ -282,6 +284,14 @@ export default function BookingForm({
               <span>{formatCurrency(remainingAtVisitCents)}</span>
             </div>
           </div>
+        )}
+
+        {selectedService && dueTodayBaseCents > 0 && (
+          <p className="text-xs text-neutral-500">
+            {paymentOption === "full" ? "This payment is" : "Your deposit is"} refundable if you cancel at
+            least {cancellationRefundHours} hours before your appointment. Cancelling later, or not showing
+            up, forfeits it.
+          </p>
         )}
 
         {state?.error && <p className="text-sm text-red-600">{state.error}</p>}

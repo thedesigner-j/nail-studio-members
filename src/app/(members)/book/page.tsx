@@ -43,6 +43,7 @@ export default async function BookPage({
         services={services}
         creditBalance={creditBalance}
         depositPercent={bookingSettings?.deposit_percent ?? 20}
+        cancellationRefundHours={bookingSettings?.cancellation_refund_hours ?? 24}
         openDaysOfWeek={openDaysOfWeek}
       />
     </div>
