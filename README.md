@@ -10,7 +10,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Cancellation policy: cancelling far enough ahead (configurable window) auto-refunds the deposit via Stripe; cancelling late or not showing up forfeits it
 - Upcoming appointments, appointment history (with cancel), and payment history — all as tabs on one page
 - Google Calendar sync (connect account, appointments create/delete calendar events)
-- Hourly reminder webhook, ~24h before each appointment
+- Booking confirmation and appointment reminder emails via Resend (reminders sent hourly, ~24h before each appointment)
 - **Loyalty**: a dollar-credit ledger (not points) — members earn credit for creating an account, completing a paid visit, referring a friend, sharing an admin-flagged promo, or leaving a review (the last two require admin approval). Referring a friend generates a link + a ready-to-paste message the member copies and sends themselves (no SMS provider/cost involved). Credit is spent in whole or in part at checkout and expires a year after it's earned. Full admin controls at `/admin/loyalty` (earn rates, shareable posts, review platforms, approval queue, ledger + manual adjustments) and `/admin/appointments` (mark a visit paid & completed, which is what triggers session credit and referral confirmation).
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
@@ -26,7 +26,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 ### 1. Supabase project
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In the SQL editor, run the migrations in `supabase/migrations/` in numeric order, skipping 0004 for now — it needs values filled in first, see "Reminder webhook" below.
+2. In the SQL editor, run the migrations in `supabase/migrations/` in numeric order, skipping 0004 for now — it needs values filled in first, see "Reminder emails" below.
 3. Copy the Project URL, `anon` key, and `service_role` key from Project Settings → API.
 
 ### 2. Google Calendar OAuth
@@ -45,11 +45,16 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
    - **For production**: in the Stripe Dashboard → Developers → Webhooks → Add endpoint, use `https://your-production-url/api/stripe/webhook`, select the **checkout.session.completed** event, and copy its signing secret.
 4. Without this configured, booking a service with a nonzero deposit will fail at the Stripe checkout step — set `booking_settings.deposit_percent` to `0` in the Table Editor if you want to test booking before Stripe is set up.
 
-### 4. Environment variables
+### 4. Resend (booking confirmation + reminder emails)
 
-Copy `.env.local.example` to `.env.local` and fill in the Supabase, Google, and Stripe values.
+1. Create an account at [resend.com](https://resend.com) and copy an API key from the dashboard.
+2. Without a verified sending domain, Resend's shared `onboarding@resend.dev` address only delivers to the email you signed up to Resend with — fine for testing, but verify a domain (Resend → Domains) and set `EMAIL_FROM` to an address on it before real members need to receive mail.
 
-### 5. Run it
+### 5. Environment variables
+
+Copy `.env.local.example` to `.env.local` and fill in the Supabase, Google, Stripe, and Resend values.
+
+### 6. Run it
 
 ```bash
 npm install
@@ -58,25 +63,25 @@ npm run dev
 
 Visit `http://localhost:3000`, sign up, and you'll land on the members dashboard.
 
-### 6. Reminder webhook (optional, for appointment reminders)
+### 7. Reminder emails (optional, for appointment reminders)
 
-The edge function in `supabase/functions/send-appointment-reminders` checks hourly for appointments starting in ~24 hours and POSTs a JSON payload to `REMINDER_WEBHOOK_URL` — point that at Zapier, Make, Twilio, or a SendGrid-backed endpoint to actually send the SMS/email.
+The edge function in `supabase/functions/send-appointment-reminders` checks hourly for appointments starting in ~24 hours and emails each member directly via Resend's API. Booking confirmation emails don't need this setup — they're sent inline when a booking is confirmed, as long as `RESEND_API_KEY` is set in the app's own environment (step 5).
 
 1. Deploy the function: `supabase functions deploy send-appointment-reminders`
-2. Set its secrets: `supabase secrets set REMINDER_WEBHOOK_URL=... CRON_SECRET=...`
+2. Set its secrets: `supabase secrets set RESEND_API_KEY=... EMAIL_FROM='Nail Studio <you@yourdomain.com>' CRON_SECRET=...`
 3. Edit `supabase/migrations/0004_reminder_schedule.sql`, replacing `<project-ref>` and `<CRON_SECRET>`, then run it in the SQL editor.
 
-### 7. Expiring credit daily (optional, for the loyalty program)
+### 8. Expiring credit daily (optional, for the loyalty program)
 
-`expire_credits()` (defined in `0011_reward_credits.sql`) sweeps confirmed credit lines past their `expires_at` to `expired`. It's a plain SQL function with no external dependency, so — unlike the reminder webhook — it can be scheduled directly with `pg_cron`, no edge function needed:
+`expire_credits()` (defined in `0011_reward_credits.sql`) sweeps confirmed credit lines past their `expires_at` to `expired`. It's a plain SQL function with no external dependency, so — unlike the reminder emails — it can be scheduled directly with `pg_cron`, no edge function needed:
 
 ```sql
 select cron.schedule('expire-reward-credits-daily', '0 3 * * *', $$select public.expire_credits();$$);
 ```
 
-Run that once in the SQL editor (requires the `pg_cron` extension, already enabled if you set up the reminder webhook above; otherwise run `create extension if not exists pg_cron with schema extensions;` first).
+Run that once in the SQL editor (requires the `pg_cron` extension, already enabled if you set up reminder emails above; otherwise run `create extension if not exists pg_cron with schema extensions;` first).
 
-### 8. Freeing abandoned booking slots (recommended once deposits are live)
+### 9. Freeing abandoned booking slots (recommended once deposits are live)
 
 When someone starts booking, the appointment is created immediately (holding the slot) before they've actually paid the deposit — otherwise two people could both try to book the same opening while one of them is mid-checkout. If they abandon the Stripe checkout page, that slot would stay held forever without this: `expire_stale_pending_appointments()` (also in `0012_deposits.sql`) cancels anything still unpaid after 30 minutes. Schedule it every 10–15 minutes:
 

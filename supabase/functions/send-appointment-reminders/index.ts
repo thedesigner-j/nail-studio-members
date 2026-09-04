@@ -1,22 +1,58 @@
 // Supabase Edge Function, run on a schedule (see the pg_cron job in
 // supabase/migrations/0004_reminder_schedule.sql). Finds appointments
-// starting in roughly 24 hours that haven't been reminded yet, and POSTs
-// each one to REMINDER_WEBHOOK_URL so it can be wired to Twilio, SendGrid,
-// Zapier, or whatever the business uses to actually send the SMS/email.
+// starting in roughly 24 hours that haven't been reminded yet, and emails
+// each member directly via Resend's REST API (no SDK needed in Deno).
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const REMINDER_WINDOW_START_HOURS = 23;
 const REMINDER_WINDOW_END_HOURS = 25;
+
+function formatAppointmentTime(iso: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+function reminderEmailHtml(memberName: string | null, serviceName: string, startsAt: string) {
+  const firstName = memberName?.split(" ")[0] ?? "there";
+  return `
+    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
+      <h1 style="font-size: 20px; margin: 0 0 4px;">See you soon, ${firstName}!</h1>
+      <p style="color: #525252; margin: 0 0 16px;">This is a reminder about your upcoming appointment.</p>
+      <div style="background: #fafaf9; border-radius: 12px; padding: 16px;">
+        <p style="margin: 0 0 4px; font-weight: 600;">${serviceName}</p>
+        <p style="margin: 0; color: #525252;">${formatAppointmentTime(startsAt)}</p>
+      </div>
+    </div>
+  `;
+}
+
+async function sendReminderEmail(resendApiKey: string, fromAddress: string, to: string, html: string, subject: string) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: fromAddress, to, subject, html }),
+  });
+  return response.ok;
+}
 
 Deno.serve(async (req) => {
   if (req.headers.get("Authorization") !== `Bearer ${Deno.env.get("CRON_SECRET")}`) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const webhookUrl = Deno.env.get("REMINDER_WEBHOOK_URL");
-  if (!webhookUrl) {
-    return new Response("REMINDER_WEBHOOK_URL is not configured", { status: 500 });
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  if (!resendApiKey) {
+    return new Response("RESEND_API_KEY is not configured", { status: 500 });
   }
+  const fromAddress = Deno.env.get("EMAIL_FROM") || "Nail Studio <onboarding@resend.dev>";
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -29,7 +65,7 @@ Deno.serve(async (req) => {
 
   const { data: appointments, error } = await supabase
     .from("appointments")
-    .select("id, starts_at, user_id, profiles(full_name, phone), services(name)")
+    .select("id, starts_at, user_id, profiles(full_name), services(name)")
     .eq("status", "confirmed")
     .is("reminder_sent_at", null)
     .gte("starts_at", windowStart)
@@ -41,19 +77,22 @@ Deno.serve(async (req) => {
 
   let sent = 0;
   for (const appt of appointments ?? []) {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        appointmentId: appt.id,
-        startsAt: appt.starts_at,
-        memberName: appt.profiles?.full_name,
-        memberPhone: appt.profiles?.phone,
-        serviceName: appt.services?.name,
-      }),
-    });
+    // auth.users isn't exposed via the normal data API, so the member's
+    // email has to come from the admin API rather than a select() join.
+    const { data: userData } = await supabase.auth.admin.getUserById(appt.user_id);
+    const email = userData?.user?.email;
+    if (!email) continue;
 
-    if (response.ok) {
+    const serviceName = appt.services?.name ?? "Appointment";
+    const ok = await sendReminderEmail(
+      resendApiKey,
+      fromAddress,
+      email,
+      reminderEmailHtml(appt.profiles?.full_name ?? null, serviceName, appt.starts_at),
+      `Reminder: ${serviceName} tomorrow`,
+    );
+
+    if (ok) {
       await supabase
         .from("appointments")
         .update({ reminder_sent_at: new Date().toISOString() })

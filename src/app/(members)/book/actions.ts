@@ -6,6 +6,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getAvailableSlots } from "@/lib/slots";
 import { createCalendarEvent } from "@/lib/google/calendar";
 import { getStripe } from "@/lib/stripe";
+import { sendBookingConfirmationEmail } from "@/lib/notifications";
 
 export async function bookAppointment(_prevState: { error: string } | null, formData: FormData) {
   const supabase = await createClient();
@@ -86,6 +87,7 @@ export async function bookAppointment(_prevState: { error: string } | null, form
   }
 
   let dueTodayCents = dueTodayBaseCents;
+  let creditAppliedCents = 0;
 
   // Credit can only reduce what's due today, not any balance left for
   // later — capped at the full price when paying in full, or at just the
@@ -98,13 +100,13 @@ export async function bookAppointment(_prevState: { error: string } | null, form
     });
 
     if (appliedAmount && appliedAmount > 0) {
-      const appliedCents = Math.round(appliedAmount * 100);
-      dueTodayCents = Math.max(0, dueTodayBaseCents - appliedCents);
+      creditAppliedCents = Math.round(appliedAmount * 100);
+      dueTodayCents = Math.max(0, dueTodayBaseCents - creditAppliedCents);
 
       await serviceRole
         .from("appointments")
         .update({
-          price_cents: service.price_cents - appliedCents,
+          price_cents: service.price_cents - creditAppliedCents,
           deposit_amount_cents: dueTodayCents,
         })
         .eq("id", appointment.id);
@@ -134,6 +136,27 @@ export async function bookAppointment(_prevState: { error: string } | null, form
       }
     } catch {
       // Calendar sync is best-effort; the booking itself already succeeded.
+    }
+
+    if (user.email) {
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", user.id)
+          .single();
+
+        await sendBookingConfirmationEmail({
+          to: user.email,
+          memberName: profile?.full_name ?? null,
+          serviceName: service.name,
+          startsAt,
+          paidTodayCents: 0,
+          remainingCents: service.price_cents - creditAppliedCents,
+        });
+      } catch {
+        // Email is best-effort; the booking itself already succeeded.
+      }
     }
 
     revalidatePath("/dashboard");

@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { createCalendarEvent } from "@/lib/google/calendar";
+import { sendBookingConfirmationEmail } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   const body = await request.text();
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
 
   const { data: appointment } = await serviceRole
     .from("appointments")
-    .select("*, services(name)")
+    .select("*, services(name), profiles(full_name)")
     .eq("id", appointmentId)
     .single();
 
@@ -72,6 +73,27 @@ export async function POST(request: Request) {
     }
   } catch {
     // Calendar sync is best-effort; the booking itself already succeeded.
+  }
+
+  try {
+    // auth.users isn't exposed via the normal data API, so the member's
+    // email has to come from the admin API rather than a select() join.
+    const {
+      data: { user: authUser },
+    } = await serviceRole.auth.admin.getUserById(appointment.user_id);
+
+    if (authUser?.email) {
+      await sendBookingConfirmationEmail({
+        to: authUser.email,
+        memberName: appointment.profiles?.full_name ?? null,
+        serviceName: appointment.services?.name ?? "Appointment",
+        startsAt: appointment.starts_at,
+        paidTodayCents: appointment.deposit_amount_cents,
+        remainingCents: appointment.price_cents - appointment.deposit_amount_cents,
+      });
+    }
+  } catch {
+    // Email is best-effort; the booking itself already succeeded.
   }
 
   return NextResponse.json({ received: true });
