@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { bookAppointment } from "./actions";
 import { formatCurrency, formatDollars, formatSlotTime } from "@/lib/format";
+import { zonedDateParts } from "@/lib/timezone";
 
 type Service = {
   id: string;
@@ -12,32 +13,56 @@ type Service = {
   price_cents: number;
 };
 
-function todayISODate() {
-  return new Date().toISOString().slice(0, 10);
+const BOOKING_WINDOW_DAYS = 60;
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// Only the salon's actual open days, so a closed day never appears as a
+// pickable option instead of silently showing "no open times" after the
+// fact. Rooted in the salon's own Pacific "today" (via zonedDateParts), not
+// the visitor's browser timezone, so the list doesn't drift a day off for
+// someone browsing from elsewhere.
+function buildOpenDays(openDaysOfWeek: Set<number>) {
+  const { year, month, day } = zonedDateParts(new Date());
+  const start = new Date(year, month - 1, day);
+  const days: { iso: string; weekday: string; label: string }[] = [];
+
+  for (let i = 0; i < BOOKING_WINDOW_DAYS; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    if (!openDaysOfWeek.has(d.getDay())) continue;
+
+    days.push({
+      iso: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      weekday: new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(d),
+      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d),
+    });
+  }
+
+  return days;
 }
 
 export default function BookingForm({
   services,
   creditBalance,
   depositPercent,
+  openDaysOfWeek,
 }: {
   services: Service[];
   creditBalance: number;
   depositPercent: number;
+  openDaysOfWeek: number[];
 }) {
   const [state, formAction, pending] = useActionState(bookAppointment, null);
   const [serviceId, setServiceId] = useState(services[0]?.id ?? "");
-  const [date, setDate] = useState(todayISODate());
+  const openDays = useMemo(() => buildOpenDays(new Set(openDaysOfWeek)), [openDaysOfWeek]);
+  const [date, setDate] = useState(() => openDays[0]?.iso ?? "");
   const [rawSelectedSlot, setRawSelectedSlot] = useState<string | null>(null);
   const [slotsResult, setSlotsResult] = useState<{ key: string; slots: string[] } | null>(null);
   const [creditToApply, setCreditToApply] = useState(0);
   const [paymentOption, setPaymentOption] = useState<"deposit" | "full">("deposit");
-
-  const maxDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 60);
-    return d.toISOString().slice(0, 10);
-  }, []);
 
   const requestKey = `${serviceId}:${date}`;
   const loadingSlots = serviceId !== "" && slotsResult?.key !== requestKey;
@@ -103,18 +128,28 @@ export default function BookingForm({
         </div>
 
         <div>
-          <label className="field-label" htmlFor="date">
-            Date
-          </label>
-          <input
-            id="date"
-            type="date"
-            value={date}
-            min={todayISODate()}
-            max={maxDate}
-            onChange={(e) => setDate(e.target.value)}
-            className="field-input w-auto"
-          />
+          <label className="field-label">Date</label>
+          {openDays.length === 0 ? (
+            <p className="mt-2 text-sm text-neutral-500">No upcoming open days — check back soon.</p>
+          ) : (
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {openDays.map((d) => (
+                <button
+                  key={d.iso}
+                  type="button"
+                  onClick={() => setDate(d.iso)}
+                  className={`flex shrink-0 flex-col items-center rounded-xl border px-3 py-2 text-sm transition-colors ${
+                    date === d.iso
+                      ? "border-neutral-900 bg-neutral-900 text-white"
+                      : "border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400"
+                  }`}
+                >
+                  <span className="text-xs uppercase tracking-wide opacity-70">{d.weekday}</span>
+                  <span className="font-medium">{d.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>

@@ -50,3 +50,23 @@ export function zonedDateTimeLocalToUtc(value: string, timeZone: string = BUSINE
   const [hours, minutes, seconds] = timeStr.split(":").map(Number);
   return zonedTimeToUtc(dateStr, hours, minutes, seconds || 0, timeZone);
 }
+
+// The calendar date (year/month/day) `date` falls on as read in `timeZone`
+// — e.g. what day it is in Vegas right now, which can differ from what day
+// it is in the browser's own timezone. Used to build the booking date
+// picker's "today" without it drifting a day off from the salon's actual
+// business day for a visitor browsing from elsewhere.
+export function zonedDateParts(
+  date: Date,
+  timeZone: string = BUSINESS_TIMEZONE,
+): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { year: get("year"), month: get("month"), day: get("day") };
+}

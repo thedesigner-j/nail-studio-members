@@ -1,4 +1,10 @@
-import { getActiveServices, getCurrentProfile, getCreditBalance, getBookingSettings } from "@/lib/data";
+import {
+  getActiveServices,
+  getCurrentProfile,
+  getCreditBalance,
+  getBookingSettings,
+  getBusinessHours,
+} from "@/lib/data";
 import BookingForm from "./booking-form";
 
 export default async function BookPage({
@@ -10,11 +16,13 @@ export default async function BookPage({
   const profile = await getCurrentProfile();
   if (!profile) return null;
 
-  const [services, creditBalance, bookingSettings] = await Promise.all([
+  const [services, creditBalance, bookingSettings, businessHours] = await Promise.all([
     getActiveServices(),
     getCreditBalance(profile.id),
     getBookingSettings(),
+    getBusinessHours(),
   ]);
+  const openDaysOfWeek = businessHours.map((h) => h.day_of_week);
 
   return (
     <div className="space-y-6">
@@ -35,6 +43,7 @@ export default async function BookPage({
         services={services}
         creditBalance={creditBalance}
         depositPercent={bookingSettings?.deposit_percent ?? 20}
+        openDaysOfWeek={openDaysOfWeek}
       />
     </div>
   );
