@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-neutral-300 bg-white px-5 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50 disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply px-3.5 py-1.5 text-xs;
+  }
+
+  .card {
+    @apply rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm shadow-neutral-900/5;
+  }
+
+  .field-input {
+    @apply w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm transition-shadow focus:border-neutral-900 focus:outline-none focus:ring-4 focus:ring-neutral-900/5;
+  }
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-neutral-700;
+  }
+
+  .badge {
+    @apply inline-flex items-center justify-center rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .gradient-hero {
+    background:
+      radial-gradient(120% 140% at 12% -10%, #ddd6fe 0%, transparent 50%),
+      radial-gradient(120% 140% at 88% -10%, #fbcfe8 0%, transparent 55%),
+      #fafaf9;
+  }
+
+  .tab-link {
+    @apply px-3 py-2 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-900;
+  }
+  .tab-link-active {
+    @apply px-3 py-2 text-sm font-medium text-neutral-900 border-b-2 border-neutral-900;
+  }
+
+  .nav-pill {
+    @apply rounded-full px-3.5 py-1.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900;
+  }
+  .nav-pill-active {
+    @apply rounded-full bg-neutral-900 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-neutral-900;
+  }
+}

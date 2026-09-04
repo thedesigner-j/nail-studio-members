@@ -1,0 +1,105 @@
+import { google } from "googleapis";
+import { createClient } from "@/lib/supabase/server";
+
+const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
+
+function getOAuthClient() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/callback`,
+  );
+}
+
+export function getGoogleAuthUrl() {
+  return getOAuthClient().generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: SCOPES,
+  });
+}
+
+export async function connectGoogleCalendar(userId: string, code: string) {
+  const oauth2Client = getOAuthClient();
+  const { tokens } = await oauth2Client.getToken(code);
+
+  if (!tokens.access_token || !tokens.refresh_token || !tokens.expiry_date) {
+    throw new Error("Google did not return the expected offline tokens.");
+  }
+
+  const supabase = await createClient();
+  await supabase.from("calendar_connections").upsert({
+    user_id: userId,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expiry_date: tokens.expiry_date,
+  });
+}
+
+// Builds an authenticated calendar client for a member, persisting a
+// refreshed access token back to the DB if Google issues a new one.
+async function getCalendarClientForUser(userId: string) {
+  const supabase = await createClient();
+  const { data: connection } = await supabase
+    .from("calendar_connections")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!connection) return null;
+
+  const oauth2Client = getOAuthClient();
+  oauth2Client.setCredentials({
+    access_token: connection.access_token,
+    refresh_token: connection.refresh_token,
+    expiry_date: connection.expiry_date,
+  });
+
+  oauth2Client.on("tokens", async (tokens) => {
+    if (tokens.access_token) {
+      await supabase
+        .from("calendar_connections")
+        .update({
+          access_token: tokens.access_token,
+          expiry_date: tokens.expiry_date ?? connection.expiry_date,
+        })
+        .eq("user_id", userId);
+    }
+  });
+
+  return {
+    calendar: google.calendar({ version: "v3", auth: oauth2Client }),
+    calendarId: connection.calendar_id,
+  };
+}
+
+export async function createCalendarEvent(
+  userId: string,
+  appointment: { starts_at: string; ends_at: string; notes: string | null },
+  serviceName: string,
+) {
+  const client = await getCalendarClientForUser(userId);
+  if (!client) return null;
+
+  const { data } = await client.calendar.events.insert({
+    calendarId: client.calendarId,
+    requestBody: {
+      summary: `Nail Studio: ${serviceName}`,
+      description: appointment.notes ?? undefined,
+      start: { dateTime: appointment.starts_at },
+      end: { dateTime: appointment.ends_at },
+    },
+  });
+
+  return data.id ?? null;
+}
+
+export async function deleteCalendarEvent(userId: string, eventId: string) {
+  const client = await getCalendarClientForUser(userId);
+  if (!client) return;
+
+  await client.calendar.events.delete({
+    calendarId: client.calendarId,
+    eventId,
+  });
+}
