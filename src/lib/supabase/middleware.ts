@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/join-", "/auth/callback"];
+const PUBLIC_PATHS = ["/login", "/signup", "/join-", "/forgot-password", "/auth/callback"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -40,7 +40,7 @@ export async function updateSession(request: NextRequest) {
 
   if (
     user &&
-    (["/login", "/signup"].includes(request.nextUrl.pathname) ||
+    (["/login", "/signup", "/forgot-password"].includes(request.nextUrl.pathname) ||
       request.nextUrl.pathname.startsWith("/join-"))
   ) {
     const url = request.nextUrl.clone();

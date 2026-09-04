@@ -59,3 +59,38 @@ export async function signOut() {
   await supabase.auth.signOut();
   redirect("/login");
 }
+
+export async function requestPasswordReset(
+  _prevState: { error: string; sent?: boolean } | null,
+  formData: FormData,
+): Promise<{ error: string; sent?: boolean }> {
+  const supabase = await createClient();
+  const email = String(formData.get("email") || "").trim();
+  if (!email) return { error: "Enter your email." };
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
+  });
+
+  // Always report success, even if the email doesn't match an account —
+  // otherwise this becomes a way to check which emails are registered.
+  if (error) console.error("resetPasswordForEmail failed:", error.message);
+  return { error: "", sent: true };
+}
+
+export async function updatePassword(
+  _prevState: { error: string } | null,
+  formData: FormData,
+): Promise<{ error: string }> {
+  const supabase = await createClient();
+  const password = String(formData.get("password") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
+
+  if (password.length < 6) return { error: "Password must be at least 6 characters." };
+  if (password !== confirmPassword) return { error: "Passwords don't match." };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  redirect("/dashboard");
+}
