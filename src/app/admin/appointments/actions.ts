@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "../require-admin";
+import { deleteCalendarEvent } from "@/lib/google/calendar";
+import { getStripe } from "@/lib/stripe";
+import { sendCancellationEmail } from "@/lib/notifications";
 
 export async function markAppointmentPaidAndCompleted(
   _prevState: { error: string } | null,
@@ -79,6 +82,81 @@ export async function markAppointmentNoShow(appointmentId: string) {
       deposit_status: appointment?.deposit_status === "paid" ? "forfeited" : appointment?.deposit_status,
     })
     .eq("id", appointmentId);
+
+  revalidatePath("/admin/appointments");
+  revalidatePath("/appointments");
+}
+
+export async function cancelAppointmentAsAdmin(appointmentId: string) {
+  const admin = await requireAdmin();
+  if (!admin) return;
+
+  const serviceRole = createServiceRoleClient();
+
+  const { data: appointment } = await serviceRole
+    .from("appointments")
+    .select("*, services(name), profiles(full_name)")
+    .eq("id", appointmentId)
+    .single();
+
+  if (!appointment) return;
+
+  let nextDepositStatus = appointment.deposit_status;
+  let refundedCents = 0;
+
+  // Unlike a member cancelling, the studio initiating this isn't the
+  // client's fault — always attempt a refund if money was actually charged,
+  // regardless of the cancellation_refund_hours window that only applies to
+  // client-initiated cancellations.
+  if (appointment.deposit_status === "paid" && appointment.stripe_payment_intent_id) {
+    try {
+      await getStripe().refunds.create({ payment_intent: appointment.stripe_payment_intent_id });
+      nextDepositStatus = "refunded";
+      refundedCents = appointment.deposit_amount_cents;
+      await serviceRole
+        .from("payments")
+        .update({ status: "refunded" })
+        .eq("appointment_id", appointment.id)
+        .eq("status", "paid");
+    } catch {
+      // Leave deposit_status as "paid" rather than claim a refund that
+      // didn't actually go through.
+    }
+  } else if (appointment.deposit_status === "paid" || appointment.deposit_status === "pending") {
+    // "paid" with no Stripe payment intent means credit covered it entirely
+    // — nothing to refund through Stripe. "pending" never got charged.
+    nextDepositStatus = "none";
+  }
+
+  await serviceRole
+    .from("appointments")
+    .update({ status: "cancelled", deposit_status: nextDepositStatus })
+    .eq("id", appointmentId);
+
+  if (appointment.google_calendar_event_id) {
+    try {
+      await deleteCalendarEvent(serviceRole, appointment.user_id, appointment.google_calendar_event_id);
+    } catch {
+      // The appointment is cancelled either way; a stray calendar event is
+      // a minor inconvenience, not worth failing the cancellation over.
+    }
+  }
+
+  try {
+    const { data: userData } = await serviceRole.auth.admin.getUserById(appointment.user_id);
+    if (userData?.user?.email) {
+      await sendCancellationEmail({
+        to: userData.user.email,
+        memberName: appointment.profiles?.full_name ?? null,
+        serviceName: appointment.services?.name ?? "Appointment",
+        startsAt: appointment.starts_at,
+        cancelledByStudio: true,
+        refundedCents,
+      });
+    }
+  } catch {
+    // Email is best-effort; the cancellation itself already succeeded.
+  }
 
   revalidatePath("/admin/appointments");
   revalidatePath("/appointments");

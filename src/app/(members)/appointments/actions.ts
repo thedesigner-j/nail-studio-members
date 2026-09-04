@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { deleteCalendarEvent } from "@/lib/google/calendar";
 import { getStripe } from "@/lib/stripe";
+import { sendCancellationEmail, sendAdminCancellationNotice, getAdminEmails } from "@/lib/notifications";
 
 export async function cancelAppointment(formData: FormData) {
   const supabase = await createClient();
@@ -16,7 +17,7 @@ export async function cancelAppointment(formData: FormData) {
 
   const { data: appointment } = await supabase
     .from("appointments")
-    .select("id, user_id, google_calendar_event_id, starts_at, deposit_status, stripe_payment_intent_id")
+    .select("*, services(name), profiles(full_name)")
     .eq("id", appointmentId)
     .eq("user_id", user.id)
     .single();
@@ -25,6 +26,7 @@ export async function cancelAppointment(formData: FormData) {
 
   const serviceRole = createServiceRoleClient();
   let nextDepositStatus = appointment.deposit_status;
+  let refundedCents = 0;
 
   if (appointment.deposit_status === "paid") {
     const { data: bookingSettings } = await supabase
@@ -38,6 +40,7 @@ export async function cancelAppointment(formData: FormData) {
       try {
         await getStripe().refunds.create({ payment_intent: appointment.stripe_payment_intent_id });
         nextDepositStatus = "refunded";
+        refundedCents = appointment.deposit_amount_cents;
         await serviceRole
           .from("payments")
           .update({ status: "refunded" })
@@ -76,6 +79,28 @@ export async function cancelAppointment(formData: FormData) {
       // The appointment is cancelled either way; a stray calendar event is
       // a minor inconvenience, not worth failing the cancellation over.
     }
+  }
+
+  try {
+    if (user.email) {
+      await sendCancellationEmail({
+        to: user.email,
+        memberName: appointment.profiles?.full_name ?? null,
+        serviceName: appointment.services?.name ?? "Appointment",
+        startsAt: appointment.starts_at,
+        cancelledByStudio: false,
+        refundedCents,
+      });
+    }
+
+    await sendAdminCancellationNotice({
+      to: await getAdminEmails(serviceRole),
+      memberName: appointment.profiles?.full_name ?? null,
+      serviceName: appointment.services?.name ?? "Appointment",
+      startsAt: appointment.starts_at,
+    });
+  } catch {
+    // Email is best-effort; the cancellation itself already succeeded.
   }
 
   revalidatePath("/appointments");
