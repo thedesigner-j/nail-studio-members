@@ -39,16 +39,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (
-    user &&
-    (["/login", "/signup", "/forgot-password"].includes(request.nextUrl.pathname) ||
-      request.nextUrl.pathname.startsWith("/join-"))
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // No server-side "already authenticated -> redirect to /dashboard" here
+  // for the (auth) pages: that redirect would land inside the Webflow
+  // embed's iframe if this request came from there. RedirectIfAuthenticated
+  // handles this client-side instead, where it can detect the iframe case
+  // and break out to the full browser tab.
 
   return supabaseResponse;
 }

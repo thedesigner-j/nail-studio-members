@@ -71,11 +71,13 @@ Run that once in the SQL editor (requires the `pg_cron` extension, already enabl
 
 Deploy this app (e.g. to Vercel) and set `WEBFLOW_SITE_ORIGIN` to your Webflow site's origin (e.g. `https://yourbusiness.webflow.io`, or your custom domain) — this is what's allowed to iframe-embed the app via the `Content-Security-Policy: frame-ancestors` header in `next.config.ts`.
 
+**Embed only `/login`, not `/dashboard`.** The full app (multi-page nav, tables, the Look Book grid, etc.) isn't designed to live inside a small embedded iframe — trying to cram it in there is what causes clipped/cut-off content. Instead, the embed shows just the compact login screen; on successful sign-in (or if the visitor's already logged in), the app breaks the whole browser tab out to the full app on its own page. This also sidesteps a browser-cookie quirk: third-party iframes get treated as "cross-site" for cookie purposes, so an already-logged-in session doesn't always carry into an embedded page reliably in every browser.
+
 In Webflow, add an Embed element on the members page with:
 
 ```html
-<iframe id="members-app" src="https://members.yourbusiness.com/dashboard"
-  style="width:100%; border:0; min-height:600px" scrolling="no"></iframe>
+<iframe id="members-app" src="https://members.yourbusiness.com/login"
+  style="width:100%; border:0; min-height:480px" scrolling="no"></iframe>
 <script>
   window.addEventListener("message", (event) => {
     if (event.data?.type === "nail-members:resize") {
@@ -85,7 +87,7 @@ In Webflow, add an Embed element on the members page with:
 </script>
 ```
 
-The app posts its content height to the parent window on load and on resize, so the script above auto-sizes the iframe (no internal scrollbar).
+The app posts its content height to the parent window on load and on resize, so the script above auto-sizes the iframe to fit just the login form (no internal scrollbar). Once someone signs in, they land on the full app as a normal, un-embedded page.
 
 ## Editing the service menu / business hours
 

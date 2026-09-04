@@ -3,7 +3,10 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
-export async function signIn(_prevState: { error: string } | null, formData: FormData) {
+export async function signIn(
+  _prevState: { error: string; next?: string } | null,
+  formData: FormData,
+): Promise<{ error: string; next?: string }> {
   const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
@@ -15,7 +18,12 @@ export async function signIn(_prevState: { error: string } | null, formData: For
     return { error: error.message };
   }
 
-  redirect(String(formData.get("next") || "/dashboard"));
+  // No server-side redirect() here: when this form is loaded inside the
+  // Webflow embed's iframe, we want the *browser tab* to navigate to the
+  // full app, not the iframe to expand to hold it. That has to happen
+  // client-side (checking window.top), so the action just reports success
+  // and the form component decides where/how to navigate.
+  return { error: "", next: String(formData.get("next") || "/dashboard") };
 }
 
 export async function signUp(_prevState: { error: string } | null, formData: FormData) {
