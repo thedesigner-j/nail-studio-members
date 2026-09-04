@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { markAppointmentPaidAndCompleted } from "./actions";
+import { useActionState, useState, useTransition } from "react";
+import { markAppointmentPaidAndCompleted, markAppointmentNoShow } from "./actions";
 import { formatAppointmentTime, formatCurrency } from "@/lib/format";
 
 type Appointment = {
@@ -9,19 +9,35 @@ type Appointment = {
   memberName: string;
   starts_at: string;
   price_cents: number;
+  deposit_status: string;
+  deposit_amount_cents: number;
   services: { name: string } | null;
 };
 
 export default function AppointmentRow({ appointment }: { appointment: Appointment }) {
   const [state, formAction, pending] = useActionState(markAppointmentPaidAndCompleted, null);
+  const [noShowPending, startNoShowTransition] = useTransition();
+  const [markedNoShow, setMarkedNoShow] = useState(false);
 
-  if (state && !state.error) {
+  const depositPaid = appointment.deposit_status === "paid";
+  const remainingCents = depositPaid
+    ? Math.max(0, appointment.price_cents - appointment.deposit_amount_cents)
+    : appointment.price_cents;
+
+  function handleNoShow() {
+    setMarkedNoShow(true);
+    startNoShowTransition(() => {
+      markAppointmentNoShow(appointment.id);
+    });
+  }
+
+  if ((state && !state.error) || markedNoShow) {
     return (
       <li className="card flex items-center justify-between text-sm text-emerald-700">
         <span>
           {appointment.memberName} — {appointment.services?.name}
         </span>
-        <span>Marked paid & completed</span>
+        <span>{markedNoShow ? "Marked no-show" : "Marked paid & completed"}</span>
       </li>
     );
   }
@@ -35,18 +51,27 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
           </p>
           <p className="text-sm text-neutral-500">{formatAppointmentTime(appointment.starts_at)}</p>
         </div>
-        <p className="text-sm text-neutral-500">{formatCurrency(appointment.price_cents)}</p>
+        <div className="text-right">
+          <p className="text-sm text-neutral-500">{formatCurrency(appointment.price_cents)} total</p>
+          {depositPaid && (
+            <span className="badge bg-emerald-100 text-emerald-700">
+              {formatCurrency(appointment.deposit_amount_cents)} deposit paid
+            </span>
+          )}
+        </div>
       </div>
 
       <form action={formAction} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="appointmentId" value={appointment.id} />
 
         <div>
-          <label className="field-label">Amount charged ($)</label>
+          <label className="field-label">
+            {depositPaid ? "Remaining balance charged ($)" : "Amount charged ($)"}
+          </label>
           <input
             type="number"
             name="amountDollars"
-            defaultValue={(appointment.price_cents / 100).toFixed(2)}
+            defaultValue={(remainingCents / 100).toFixed(2)}
             min={0}
             step={0.01}
             className="field-input w-32"
@@ -66,6 +91,14 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
 
         <button type="submit" disabled={pending} className="btn-primary btn-sm">
           {pending ? "Saving..." : "Mark paid & completed"}
+        </button>
+        <button
+          type="button"
+          onClick={handleNoShow}
+          disabled={noShowPending}
+          className="text-sm font-medium text-rose-600 hover:underline"
+        >
+          Mark no-show
         </button>
       </form>
 

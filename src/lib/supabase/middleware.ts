@@ -2,7 +2,16 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { iframeCookieOptions } from "./cookie-options";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/join-", "/forgot-password", "/auth/callback"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/join-",
+  "/forgot-password",
+  "/auth/callback",
+  // Server-to-server callbacks with no user session/cookies at all — Stripe
+  // signs its own requests instead, verified inside the route handler.
+  "/api/stripe/webhook",
+];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

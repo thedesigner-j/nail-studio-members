@@ -10,6 +10,7 @@ import { cancelAppointment } from "./actions";
 import PhotoUploader from "./photo-uploader";
 
 const STATUS_LABEL: Record<string, string> = {
+  pending_payment: "Awaiting deposit",
   confirmed: "Confirmed",
   completed: "Completed",
   cancelled: "Cancelled",

@@ -55,3 +55,26 @@ export async function markAppointmentPaidAndCompleted(
   revalidatePath("/admin/loyalty");
   return { error: "" };
 }
+
+export async function markAppointmentNoShow(appointmentId: string) {
+  const admin = await requireAdmin();
+  if (!admin) return;
+
+  const serviceRole = createServiceRoleClient();
+  const { data: appointment } = await serviceRole
+    .from("appointments")
+    .select("deposit_status")
+    .eq("id", appointmentId)
+    .single();
+
+  await serviceRole
+    .from("appointments")
+    .update({
+      status: "no_show",
+      deposit_status: appointment?.deposit_status === "paid" ? "forfeited" : appointment?.deposit_status,
+    })
+    .eq("id", appointmentId);
+
+  revalidatePath("/admin/appointments");
+  revalidatePath("/appointments");
+}

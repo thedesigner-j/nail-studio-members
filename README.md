@@ -6,7 +6,8 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 
 - Email/password auth (sign up, sign in, email confirmation)
 - Profile with photo upload
-- Book an appointment (service + live availability + buffer times + confirm), with account credit applicable at checkout
+- Book an appointment (service + live availability + buffer times), with a **Stripe deposit required to confirm** — a configurable % of the service price, account credit can be applied toward it, and the slot is held for 30 minutes while checkout is in progress
+- Cancellation policy: cancelling far enough ahead (configurable window) auto-refunds the deposit via Stripe; cancelling late or not showing up forfeits it
 - Upcoming appointments, appointment history (with cancel), and payment history — all as tabs on one page
 - Google Calendar sync (connect account, appointments create/delete calendar events)
 - Hourly reminder webhook, ~24h before each appointment
@@ -14,12 +15,11 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
 - Early Access: admin-posted sales/product/event announcements, members-only, with an unread indicator in the nav
-- Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): working hours, services & rates, early access posts, appointments, and loyalty
+- Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, or no-show), booking & deposit settings, and loyalty
 
 ## Known limitations
 
 - **Message replies**: there's no admin reply UI yet — insert a row into `messages` with `sender = 'business'` for the relevant `user_id` directly in the Supabase Table Editor.
-- **Marking a no-show**: `/admin/appointments` only offers "paid & completed" — a no-show still needs `appointments.status` updated directly in the Table Editor.
 
 ## Setup
 
@@ -36,11 +36,20 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 3. Create an OAuth Client ID (Web application). Add an authorized redirect URI: `{NEXT_PUBLIC_SITE_URL}/api/calendar/callback` (e.g. `http://localhost:3000/api/calendar/callback` for local dev, and your production URL once deployed).
 4. Copy the client ID and secret.
 
-### 3. Environment variables
+### 3. Stripe (booking deposits)
 
-Copy `.env.local.example` to `.env.local` and fill in the Supabase and Google values.
+1. Create an account at [dashboard.stripe.com](https://dashboard.stripe.com) (test mode is fine to start — the `sk_test_...` key works the same way, just against fake cards).
+2. Copy the **Secret key** from [dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys).
+3. Set up the webhook that confirms a deposit payment (`/api/stripe/webhook`):
+   - **For local dev**: install the [Stripe CLI](https://stripe.com/docs/stripe-cli), run `stripe listen --forward-to localhost:3000/api/stripe/webhook`, and use the webhook signing secret it prints (`whsec_...`).
+   - **For production**: in the Stripe Dashboard → Developers → Webhooks → Add endpoint, use `https://your-production-url/api/stripe/webhook`, select the **checkout.session.completed** event, and copy its signing secret.
+4. Without this configured, booking a service with a nonzero deposit will fail at the Stripe checkout step — set `booking_settings.deposit_percent` to `0` in the Table Editor if you want to test booking before Stripe is set up.
 
-### 4. Run it
+### 4. Environment variables
+
+Copy `.env.local.example` to `.env.local` and fill in the Supabase, Google, and Stripe values.
+
+### 5. Run it
 
 ```bash
 npm install
@@ -49,7 +58,7 @@ npm run dev
 
 Visit `http://localhost:3000`, sign up, and you'll land on the members dashboard.
 
-### 5. Reminder webhook (optional, for appointment reminders)
+### 6. Reminder webhook (optional, for appointment reminders)
 
 The edge function in `supabase/functions/send-appointment-reminders` checks hourly for appointments starting in ~24 hours and POSTs a JSON payload to `REMINDER_WEBHOOK_URL` — point that at Zapier, Make, Twilio, or a SendGrid-backed endpoint to actually send the SMS/email.
 
@@ -57,7 +66,7 @@ The edge function in `supabase/functions/send-appointment-reminders` checks hour
 2. Set its secrets: `supabase secrets set REMINDER_WEBHOOK_URL=... CRON_SECRET=...`
 3. Edit `supabase/migrations/0004_reminder_schedule.sql`, replacing `<project-ref>` and `<CRON_SECRET>`, then run it in the SQL editor.
 
-### 6. Expiring credit daily (optional, for the loyalty program)
+### 7. Expiring credit daily (optional, for the loyalty program)
 
 `expire_credits()` (defined in `0011_reward_credits.sql`) sweeps confirmed credit lines past their `expires_at` to `expired`. It's a plain SQL function with no external dependency, so — unlike the reminder webhook — it can be scheduled directly with `pg_cron`, no edge function needed:
 
@@ -66,6 +75,14 @@ select cron.schedule('expire-reward-credits-daily', '0 3 * * *', $$select public
 ```
 
 Run that once in the SQL editor (requires the `pg_cron` extension, already enabled if you set up the reminder webhook above; otherwise run `create extension if not exists pg_cron with schema extensions;` first).
+
+### 8. Freeing abandoned booking slots (recommended once deposits are live)
+
+When someone starts booking, the appointment is created immediately (holding the slot) before they've actually paid the deposit — otherwise two people could both try to book the same opening while one of them is mid-checkout. If they abandon the Stripe checkout page, that slot would stay held forever without this: `expire_stale_pending_appointments()` (also in `0012_deposits.sql`) cancels anything still unpaid after 30 minutes. Schedule it every 10–15 minutes:
+
+```sql
+select cron.schedule('expire-stale-pending-appointments', '*/10 * * * *', $$select public.expire_stale_pending_appointments();$$);
+```
 
 ## Embedding in Webflow
 

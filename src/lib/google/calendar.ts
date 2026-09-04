@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
@@ -19,6 +20,8 @@ export function getGoogleAuthUrl() {
   });
 }
 
+// Always called from the OAuth connect flow itself (a logged-in user's own
+// request), so this one still creates its own cookie-based client.
 export async function connectGoogleCalendar(userId: string, code: string) {
   const oauth2Client = getOAuthClient();
   const { tokens } = await oauth2Client.getToken(code);
@@ -37,9 +40,12 @@ export async function connectGoogleCalendar(userId: string, code: string) {
 }
 
 // Builds an authenticated calendar client for a member, persisting a
-// refreshed access token back to the DB if Google issues a new one.
-async function getCalendarClientForUser(userId: string) {
-  const supabase = await createClient();
+// refreshed access token back to the DB if Google issues a new one. Takes
+// the Supabase client as a parameter rather than creating one internally:
+// callers include the Stripe webhook, which has no user session/cookies to
+// build a cookie-based client from, and must pass the service role client
+// instead.
+async function getCalendarClientForUser(supabase: SupabaseClient, userId: string) {
   const { data: connection } = await supabase
     .from("calendar_connections")
     .select("*")
@@ -74,11 +80,12 @@ async function getCalendarClientForUser(userId: string) {
 }
 
 export async function createCalendarEvent(
+  supabase: SupabaseClient,
   userId: string,
   appointment: { starts_at: string; ends_at: string; notes: string | null },
   serviceName: string,
 ) {
-  const client = await getCalendarClientForUser(userId);
+  const client = await getCalendarClientForUser(supabase, userId);
   if (!client) return null;
 
   const { data } = await client.calendar.events.insert({
@@ -94,8 +101,8 @@ export async function createCalendarEvent(
   return data.id ?? null;
 }
 
-export async function deleteCalendarEvent(userId: string, eventId: string) {
-  const client = await getCalendarClientForUser(userId);
+export async function deleteCalendarEvent(supabase: SupabaseClient, userId: string, eventId: string) {
+  const client = await getCalendarClientForUser(supabase, userId);
   if (!client) return;
 
   await client.calendar.events.delete({

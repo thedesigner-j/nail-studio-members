@@ -86,6 +86,12 @@ export async function getBusinessHours() {
   return data ?? [];
 }
 
+export async function getBookingSettings() {
+  const supabase = await createClient();
+  const { data } = await supabase.from("booking_settings").select("*").single();
+  return data;
+}
+
 export async function getUpcomingAppointments(userId: string) {
   const supabase = await createClient();
   const { data } = await supabase

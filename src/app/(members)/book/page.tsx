@@ -1,13 +1,19 @@
-import { getActiveServices, getCurrentProfile, getCreditBalance } from "@/lib/data";
+import { getActiveServices, getCurrentProfile, getCreditBalance, getBookingSettings } from "@/lib/data";
 import BookingForm from "./booking-form";
 
-export default async function BookPage() {
+export default async function BookPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ depositCancelled?: string }>;
+}) {
+  const { depositCancelled } = await searchParams;
   const profile = await getCurrentProfile();
   if (!profile) return null;
 
-  const [services, creditBalance] = await Promise.all([
+  const [services, creditBalance, bookingSettings] = await Promise.all([
     getActiveServices(),
     getCreditBalance(profile.id),
+    getBookingSettings(),
   ]);
 
   return (
@@ -19,7 +25,17 @@ export default async function BookPage() {
         </p>
       </div>
 
-      <BookingForm services={services} creditBalance={creditBalance} />
+      {depositCancelled && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Deposit payment was cancelled — your slot wasn&apos;t held. Feel free to try again.
+        </p>
+      )}
+
+      <BookingForm
+        services={services}
+        creditBalance={creditBalance}
+        depositPercent={bookingSettings?.deposit_percent ?? 20}
+      />
     </div>
   );
 }
