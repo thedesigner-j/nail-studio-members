@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export async function getCurrentProfile() {
   const supabase = await createClient();
@@ -397,4 +397,86 @@ export async function getCalendarConnection(userId: string) {
     .maybeSingle();
 
   return data;
+}
+
+// === Admin client directory ====================================================
+
+export type AdminClientRow = {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+  memberSince: string;
+  totalBookings: number;
+  noShows: number;
+  cancellations: number;
+  lastVisitAt: string | null;
+  nextAppointmentAt: string | null;
+  totalSpentCents: number;
+  creditBalance: number;
+  lifetimeEarned: number;
+  referralsSent: number;
+  referralsConfirmed: number;
+};
+
+// Admin-only, so this reads via the service role rather than adding an
+// admin RLS carve-out to `profiles` — it already needs the service role's
+// auth.admin API to get member emails (auth.users isn't exposed through
+// the normal data API at all), so there's no simpler RLS-only path anyway.
+export async function getAllClientsForAdmin(): Promise<AdminClientRow[]> {
+  const serviceRole = createServiceRoleClient();
+  const now = new Date().toISOString();
+
+  const [{ data: profiles }, { data: userList }, { data: appointments }, { data: payments }, { data: credits }, { data: invites }] =
+    await Promise.all([
+      serviceRole.from("profiles").select("id, full_name, avatar_url, phone, created_at, is_admin"),
+      serviceRole.auth.admin.listUsers({ perPage: 1000 }),
+      serviceRole.from("appointments").select("user_id, status, starts_at"),
+      serviceRole.from("payments").select("user_id, amount_cents, status"),
+      serviceRole.from("reward_credits").select("user_id, amount, redeemed_amount, status, expires_at"),
+      serviceRole.from("referral_invites").select("referrer_id, status"),
+    ]);
+
+  const emailById = new Map(userList?.users.map((u) => [u.id, u.email ?? null]) ?? []);
+
+  return (profiles ?? [])
+    .filter((p) => !p.is_admin)
+    .map((profile) => {
+      const myAppointments = (appointments ?? []).filter((a) => a.user_id === profile.id);
+      const myPayments = (payments ?? []).filter((p) => p.user_id === profile.id);
+      const myCredits = (credits ?? []).filter((c) => c.user_id === profile.id);
+      const myInvites = (invites ?? []).filter((i) => i.referrer_id === profile.id);
+
+      const completed = myAppointments.filter((a) => a.status === "completed");
+      const upcoming = myAppointments
+        .filter((a) => a.status === "confirmed" && a.starts_at > now)
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+      const lastVisit = completed.sort((a, b) => b.starts_at.localeCompare(a.starts_at))[0];
+
+      return {
+        id: profile.id,
+        fullName: profile.full_name ?? "Unnamed member",
+        email: emailById.get(profile.id) ?? null,
+        phone: profile.phone,
+        avatarUrl: profile.avatar_url,
+        memberSince: profile.created_at,
+        totalBookings: completed.length,
+        noShows: myAppointments.filter((a) => a.status === "no_show").length,
+        cancellations: myAppointments.filter((a) => a.status === "cancelled").length,
+        lastVisitAt: lastVisit?.starts_at ?? null,
+        nextAppointmentAt: upcoming[0]?.starts_at ?? null,
+        totalSpentCents: myPayments
+          .filter((p) => p.status === "paid")
+          .reduce((sum, p) => sum + p.amount_cents, 0),
+        creditBalance: myCredits
+          .filter((c) => c.status === "confirmed" && c.expires_at > now)
+          .reduce((sum, c) => sum + (c.amount - c.redeemed_amount), 0),
+        lifetimeEarned: myCredits
+          .filter((c) => ["confirmed", "redeemed", "expired"].includes(c.status))
+          .reduce((sum, c) => sum + c.amount, 0),
+        referralsSent: myInvites.length,
+        referralsConfirmed: myInvites.filter((i) => i.status === "confirmed").length,
+      };
+    });
 }
