@@ -37,6 +37,35 @@ export async function sendBookingConfirmationEmail(params: {
   });
 }
 
+export async function sendRescheduleEmail(params: {
+  to: string;
+  memberName: string | null;
+  serviceName: string;
+  previousStartsAt: string;
+  newStartsAt: string;
+}) {
+  const firstName = params.memberName?.split(" ")[0] ?? "there";
+
+  const html = `
+    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
+      <h1 style="font-size: 20px; margin: 0 0 4px;">Appointment rescheduled</h1>
+      <p style="color: #525252; margin: 0 0 16px;">Hi ${firstName}, your appointment below has a new time.</p>
+      <div style="background: #fafaf9; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 4px; font-weight: 600;">${params.serviceName}</p>
+        <p style="margin: 0; color: #a3a3a3; text-decoration: line-through;">${formatAppointmentTime(params.previousStartsAt)}</p>
+        <p style="margin: 4px 0 0; color: #171717; font-weight: 600;">${formatAppointmentTime(params.newStartsAt)}</p>
+      </div>
+      <p style="margin-top: 24px; color: #525252;">See you then!</p>
+    </div>
+  `;
+
+  await sendEmail({
+    to: params.to,
+    subject: `Rescheduled: ${params.serviceName} — now ${formatAppointmentTime(params.newStartsAt)}`,
+    html,
+  });
+}
+
 export async function sendCancellationEmail(params: {
   to: string;
   memberName: string | null;
@@ -100,6 +129,38 @@ export async function sendAdminCancellationNotice(params: {
       sendEmail({
         to,
         subject: `Client cancelled: ${params.serviceName} on ${formatAppointmentTime(params.startsAt)}`,
+        html,
+      }),
+    ),
+  );
+}
+
+export async function sendAdminRescheduleNotice(params: {
+  to: string[];
+  memberName: string | null;
+  serviceName: string;
+  previousStartsAt: string;
+  newStartsAt: string;
+}) {
+  if (params.to.length === 0) return;
+
+  const html = `
+    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
+      <h1 style="font-size: 20px; margin: 0 0 4px;">A client rescheduled</h1>
+      <div style="background: #fafaf9; border-radius: 12px; padding: 16px;">
+        <p style="margin: 0 0 4px; font-weight: 600;">${params.serviceName}</p>
+        <p style="margin: 0; color: #a3a3a3; text-decoration: line-through;">${formatAppointmentTime(params.previousStartsAt)}</p>
+        <p style="margin: 4px 0 0; color: #171717; font-weight: 600;">${formatAppointmentTime(params.newStartsAt)}</p>
+        <p style="margin: 8px 0 0; color: #525252;">${params.memberName ?? "A member"}</p>
+      </div>
+    </div>
+  `;
+
+  await Promise.all(
+    params.to.map((to) =>
+      sendEmail({
+        to,
+        subject: `Client rescheduled: ${params.serviceName} — now ${formatAppointmentTime(params.newStartsAt)}`,
         html,
       }),
     ),

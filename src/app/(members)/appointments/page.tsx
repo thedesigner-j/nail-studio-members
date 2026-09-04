@@ -18,9 +18,9 @@ const TABS = [
 export default async function AppointmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; booked?: string }>;
+  searchParams: Promise<{ tab?: string; booked?: string; rescheduled?: string }>;
 }) {
-  const { tab, booked } = await searchParams;
+  const { tab, booked, rescheduled } = await searchParams;
   const activeTab = TABS.some((t) => t.key === tab) ? (tab as (typeof TABS)[number]["key"]) : "upcoming";
 
   const profile = await getCurrentProfile();
@@ -33,6 +33,11 @@ export default async function AppointmentsPage({
         {booked && (
           <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             You&apos;re booked! We&apos;ll see you soon.
+          </p>
+        )}
+        {rescheduled && (
+          <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            Your appointment has been rescheduled.
           </p>
         )}
       </div>

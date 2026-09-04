@@ -10,7 +10,7 @@ const SLOT_STEP_MINUTES = 30;
 // comparison — the existing appointment's buffer keeps a new one from
 // starting too soon after it, and the new appointment's own buffer keeps it
 // from being booked too close before the next existing one.
-export async function getAvailableSlots(serviceId: string, dateStr: string) {
+export async function getAvailableSlots(serviceId: string, dateStr: string, excludeAppointmentId?: string) {
   const supabase = await createClient();
 
   const [{ data: service }, { data: hours }] = await Promise.all([
@@ -27,12 +27,21 @@ export async function getAvailableSlots(serviceId: string, dateStr: string) {
   const dayStart = zonedTimeToUtc(dateStr, 0, 0, 0);
   const dayEnd = zonedTimeToUtc(dateStr, 23, 59, 59);
 
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from("appointments")
     .select("starts_at, ends_at, services(buffer_minutes)")
     .neq("status", "cancelled")
     .gte("starts_at", dayStart.toISOString())
     .lte("starts_at", dayEnd.toISOString());
+
+  // Rescheduling an appointment shouldn't have it block its own old slot —
+  // otherwise a member could never pick a time that overlaps the booking
+  // they're in the middle of moving.
+  if (excludeAppointmentId) {
+    existingQuery = existingQuery.neq("id", excludeAppointmentId);
+  }
+
+  const { data: existing } = await existingQuery;
 
   // Supabase's untyped client guesses embedded to-one relations as arrays
   // from the (plural) table name; at runtime this is a single object since

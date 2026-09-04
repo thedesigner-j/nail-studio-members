@@ -41,7 +41,11 @@ export default function AppointmentCard({
   // hoursUntil is computed on click (not during render) since Date.now()
   // is impure — React's purity rules disallow calling it directly in the
   // render body.
-  const [confirmState, setConfirmState] = useState<{ willForfeit: boolean; willRefund: boolean } | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    willForfeit: boolean;
+    willRefund: boolean;
+    canReschedule: boolean;
+  } | null>(null);
 
   const depositPaid = appointment.deposit_status === "paid";
   const paidInFull = depositPaid && appointment.deposit_amount_cents >= appointment.price_cents;
@@ -50,9 +54,13 @@ export default function AppointmentCard({
   function handleCancelClick() {
     const hoursUntil = (new Date(appointment.starts_at).getTime() - Date.now()) / 3_600_000;
     const hasDeposit = depositPaid && appointment.deposit_amount_cents > 0;
+    // Rescheduling is blocked within the same window that forfeits the
+    // deposit (see rescheduleAppointment) — no point suggesting it as an
+    // escape hatch from a forfeiture that's about to happen either way.
     setConfirmState({
       willForfeit: hasDeposit && hoursUntil < cancellationRefundHours,
       willRefund: hasDeposit && hoursUntil >= cancellationRefundHours,
+      canReschedule: hoursUntil >= cancellationRefundHours,
     });
   }
 
@@ -78,13 +86,18 @@ export default function AppointmentCard({
         <div className="flex items-center gap-3">
           <p className="text-sm text-neutral-500">{formatCurrency(appointment.price_cents)}</p>
           {cancellable && !confirmState && (
-            <button
-              type="button"
-              onClick={handleCancelClick}
-              className="text-sm font-medium text-rose-600 hover:underline"
-            >
-              Cancel
-            </button>
+            <>
+              <Link href={`/appointments/${appointment.id}/reschedule`} className="text-sm font-medium text-neutral-600 hover:underline">
+                Reschedule
+              </Link>
+              <button
+                type="button"
+                onClick={handleCancelClick}
+                className="text-sm font-medium text-rose-600 hover:underline"
+              >
+                Cancel
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -99,13 +112,19 @@ export default function AppointmentCard({
                 : "Are you sure you want to cancel this appointment?"}
           </p>
           {confirmState.willForfeit && (
-            <p className="mt-1 text-rose-700">Need a different time instead? Reschedule and keep your deposit.</p>
+            <p className="mt-1 text-rose-700">
+              {confirmState.canReschedule
+                ? "Need a different time instead? Reschedule and keep your deposit."
+                : "It's also too late to reschedule online — contact the studio directly if you need a different time."}
+            </p>
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Link href="/book" className="btn-secondary btn-sm">
-              Reschedule instead
-            </Link>
+            {confirmState.canReschedule && (
+              <Link href={`/appointments/${appointment.id}/reschedule`} className="btn-secondary btn-sm">
+                Reschedule instead
+              </Link>
+            )}
             <form action={cancelAppointment}>
               <input type="hidden" name="appointmentId" value={appointment.id} />
               <button
