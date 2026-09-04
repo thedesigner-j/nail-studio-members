@@ -125,6 +125,29 @@ export async function getConfirmedAppointmentsForAdmin() {
   return rows.map((r) => ({ ...r, memberName: nameById.get(r.user_id) ?? "A member" }));
 }
 
+// Admin-only: every non-cancelled appointment starting within [startIso,
+// endIso), for the week calendar view. Relies on the "appointments: admins
+// read all" RLS policy, same as getConfirmedAppointmentsForAdmin.
+export async function getAppointmentsForCalendar(startIso: string, endIso: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("appointments")
+    .select("*, services(name)")
+    .neq("status", "cancelled")
+    .gte("starts_at", startIso)
+    .lt("starts_at", endIso)
+    .order("starts_at", { ascending: true });
+
+  const rows = data ?? [];
+  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  if (userIds.length === 0) return [];
+
+  const { data: profiles } = await supabase.from("public_profiles").select("id, full_name").in("id", userIds);
+  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+
+  return rows.map((r) => ({ ...r, memberName: nameById.get(r.user_id) ?? "A member" }));
+}
+
 export async function getAppointmentHistory(userId: string) {
   const supabase = await createClient();
   const { data } = await supabase

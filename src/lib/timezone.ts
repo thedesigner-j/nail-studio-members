@@ -51,6 +51,22 @@ export function zonedDateTimeLocalToUtc(value: string, timeZone: string = BUSINE
   return zonedTimeToUtc(dateStr, hours, minutes, seconds || 0, timeZone);
 }
 
+// The wall-clock hour/minute `date` falls on as read in `timeZone` — used to
+// position an appointment block within a day's time grid (e.g. the admin
+// calendar), where "how far down the column" has to be Pacific hours, not
+// whatever timezone the browser rendering it happens to be in.
+export function zonedHourMinute(date: Date, timeZone: string = BUSINESS_TIMEZONE): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(date);
+
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { hour: get("hour"), minute: get("minute") };
+}
+
 // The calendar date (year/month/day) `date` falls on as read in `timeZone`
 // — e.g. what day it is in Vegas right now, which can differ from what day
 // it is in the browser's own timezone. Used to build the booking date
