@@ -31,6 +31,7 @@ export default function BookingForm({
   const [rawSelectedSlot, setRawSelectedSlot] = useState<string | null>(null);
   const [slotsResult, setSlotsResult] = useState<{ key: string; slots: string[] } | null>(null);
   const [creditToApply, setCreditToApply] = useState(0);
+  const [paymentOption, setPaymentOption] = useState<"deposit" | "full">("deposit");
 
   const maxDate = useMemo(() => {
     const d = new Date();
@@ -53,17 +54,25 @@ export default function BookingForm({
 
   const selectedService = services.find((s) => s.id === serviceId);
   const depositCents = selectedService ? Math.round(selectedService.price_cents * (depositPercent / 100)) : 0;
-  const remainingAtVisitCents = selectedService ? selectedService.price_cents - depositCents : 0;
 
-  const maxCreditApplicable = Math.min(creditBalance, depositCents / 100);
+  const dueTodayBaseCents =
+    paymentOption === "full" ? (selectedService?.price_cents ?? 0) : depositCents;
+  const remainingAtVisitCents = selectedService
+    ? paymentOption === "full"
+      ? 0
+      : selectedService.price_cents - depositCents
+    : 0;
+
+  const maxCreditApplicable = Math.min(creditBalance, dueTodayBaseCents / 100);
   const clampedCredit = Math.min(creditToApply, maxCreditApplicable);
-  const dueTodayCents = Math.max(0, depositCents - Math.round(clampedCredit * 100));
+  const dueTodayCents = Math.max(0, dueTodayBaseCents - Math.round(clampedCredit * 100));
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="serviceId" value={serviceId} />
       <input type="hidden" name="startsAt" value={selectedSlot ?? ""} />
       <input type="hidden" name="creditToApply" value={clampedCredit} />
+      <input type="hidden" name="paymentOption" value={paymentOption} />
 
       <div className="card space-y-6">
         <div>
@@ -136,11 +145,54 @@ export default function BookingForm({
           )}
         </div>
 
-        {creditBalance > 0 && depositCents > 0 && (
+        {selectedService && depositCents > 0 && (
+          <div>
+            <label className="field-label">How would you like to pay?</label>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setPaymentOption("deposit")}
+                className={`rounded-xl border p-3 text-left text-sm transition-colors ${
+                  paymentOption === "deposit"
+                    ? "border-neutral-900 bg-neutral-900 text-white"
+                    : "border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400"
+                }`}
+              >
+                <p className="font-medium">Pay deposit ({depositPercent}%)</p>
+                <p
+                  className={`mt-1 text-xs ${
+                    paymentOption === "deposit" ? "text-neutral-300" : "text-neutral-500"
+                  }`}
+                >
+                  {formatCurrency(depositCents)} today, rest due at your appointment
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentOption("full")}
+                className={`rounded-xl border p-3 text-left text-sm transition-colors ${
+                  paymentOption === "full"
+                    ? "border-neutral-900 bg-neutral-900 text-white"
+                    : "border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400"
+                }`}
+              >
+                <p className="font-medium">Pay in full</p>
+                <p
+                  className={`mt-1 text-xs ${
+                    paymentOption === "full" ? "text-neutral-300" : "text-neutral-500"
+                  }`}
+                >
+                  {formatCurrency(selectedService.price_cents)} today, nothing due later
+                </p>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {creditBalance > 0 && dueTodayBaseCents > 0 && (
           <div>
             <label className="field-label" htmlFor="creditToApply">
-              Apply account credit toward your deposit (optional) — {formatDollars(creditBalance)}{" "}
-              available
+              Apply account credit (optional) — {formatDollars(creditBalance)} available
             </label>
             <input
               id="creditToApply"
@@ -154,7 +206,7 @@ export default function BookingForm({
               className="field-input w-auto"
             />
             <p className="mt-1 text-xs text-neutral-400">
-              Up to {formatDollars(maxCreditApplicable)} can be applied to today&apos;s deposit.
+              Up to {formatDollars(maxCreditApplicable)} can be applied to what&apos;s due today.
             </p>
           </div>
         )}
@@ -172,15 +224,15 @@ export default function BookingForm({
           />
         </div>
 
-        {selectedService && depositCents > 0 && (
+        {selectedService && dueTodayBaseCents > 0 && (
           <div className="rounded-xl bg-neutral-50 p-3 text-sm">
             <div className="flex justify-between text-neutral-500">
               <span>Service total</span>
               <span>{formatCurrency(selectedService.price_cents)}</span>
             </div>
             <div className="flex justify-between text-neutral-500">
-              <span>Deposit ({depositPercent}%) due today</span>
-              <span>{formatCurrency(depositCents)}</span>
+              <span>{paymentOption === "full" ? "Paying in full" : `Deposit (${depositPercent}%)`}</span>
+              <span>{formatCurrency(dueTodayBaseCents)}</span>
             </div>
             {clampedCredit > 0 && (
               <div className="flex justify-between text-emerald-600">
@@ -205,7 +257,7 @@ export default function BookingForm({
           {pending
             ? "Booking..."
             : dueTodayCents > 0
-              ? `Pay ${formatCurrency(dueTodayCents)} deposit to book`
+              ? `Pay ${formatCurrency(dueTodayCents)}${paymentOption === "full" ? " in full" : " deposit"} to book`
               : "Confirm booking"}
         </button>
       </div>

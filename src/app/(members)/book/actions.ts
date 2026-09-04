@@ -18,6 +18,7 @@ export async function bookAppointment(_prevState: { error: string } | null, form
   const startsAt = String(formData.get("startsAt"));
   const notes = String(formData.get("notes") || "") || null;
   const requestedCredit = Math.max(0, Number(formData.get("creditToApply")) || 0);
+  const payInFull = String(formData.get("paymentOption")) === "full";
 
   const { data: service } = await supabase
     .from("services")
@@ -36,7 +37,15 @@ export async function bookAppointment(_prevState: { error: string } | null, form
     .select("deposit_percent")
     .single();
   const depositPercent = bookingSettings?.deposit_percent ?? 20;
-  const depositCents = Math.round(service.price_cents * (depositPercent / 100));
+
+  // "Pay in full" is just a deposit equal to the whole price — every other
+  // code path (refund on cancel, forfeit on no-show, remaining-balance math
+  // for the admin's "mark paid & completed" flow, session credit) already
+  // works correctly off deposit_amount_cents vs price_cents without needing
+  // to know which case it started from.
+  const dueTodayBaseCents = payInFull
+    ? service.price_cents
+    : Math.round(service.price_cents * (depositPercent / 100));
 
   const endsAt = new Date(
     new Date(startsAt).getTime() + service.duration_minutes * 60_000,
@@ -64,8 +73,8 @@ export async function bookAppointment(_prevState: { error: string } | null, form
       starts_at: startsAt,
       ends_at: endsAt,
       price_cents: service.price_cents,
-      deposit_amount_cents: depositCents,
-      deposit_status: depositCents > 0 ? "pending" : "none",
+      deposit_amount_cents: dueTodayBaseCents,
+      deposit_status: dueTodayBaseCents > 0 ? "pending" : "none",
       status: "pending_payment",
       notes,
     })
@@ -76,38 +85,38 @@ export async function bookAppointment(_prevState: { error: string } | null, form
     return { error: "Could not start that booking. Please try again." };
   }
 
-  let remainingDepositCents = depositCents;
+  let dueTodayCents = dueTodayBaseCents;
 
-  // Credit can only reduce the deposit due today, not the full price — the
-  // remaining balance is paid in person and isn't something this flow
-  // controls.
-  if (requestedCredit > 0 && depositCents > 0) {
+  // Credit can only reduce what's due today, not any balance left for
+  // later — capped at the full price when paying in full, or at just the
+  // deposit fraction otherwise.
+  if (requestedCredit > 0 && dueTodayBaseCents > 0) {
     const { data: appliedAmount } = await serviceRole.rpc("redeem_credit_balance", {
       p_user_id: user.id,
-      p_amount: Math.min(requestedCredit, depositCents / 100),
+      p_amount: Math.min(requestedCredit, dueTodayBaseCents / 100),
       p_appointment_id: appointment.id,
     });
 
     if (appliedAmount && appliedAmount > 0) {
       const appliedCents = Math.round(appliedAmount * 100);
-      remainingDepositCents = Math.max(0, depositCents - appliedCents);
+      dueTodayCents = Math.max(0, dueTodayBaseCents - appliedCents);
 
       await serviceRole
         .from("appointments")
         .update({
           price_cents: service.price_cents - appliedCents,
-          deposit_amount_cents: remainingDepositCents,
+          deposit_amount_cents: dueTodayCents,
         })
         .eq("id", appointment.id);
     }
   }
 
-  if (remainingDepositCents <= 0) {
-    // Credit covered the whole deposit (or none was required) — confirm
-    // immediately, no Stripe checkout needed.
+  if (dueTodayCents <= 0) {
+    // Credit covered everything due today (or nothing was required) —
+    // confirm immediately, no Stripe checkout needed.
     await serviceRole
       .from("appointments")
-      .update({ status: "confirmed", deposit_status: depositCents > 0 ? "paid" : "none" })
+      .update({ status: "confirmed", deposit_status: dueTodayBaseCents > 0 ? "paid" : "none" })
       .eq("id", appointment.id);
 
     try {
@@ -139,8 +148,8 @@ export async function bookAppointment(_prevState: { error: string } | null, form
       {
         price_data: {
           currency: "usd",
-          product_data: { name: `Deposit — ${service.name}` },
-          unit_amount: remainingDepositCents,
+          product_data: { name: `${payInFull ? "Payment" : "Deposit"} — ${service.name}` },
+          unit_amount: dueTodayCents,
         },
         quantity: 1,
       },
@@ -152,7 +161,7 @@ export async function bookAppointment(_prevState: { error: string } | null, form
   });
 
   if (!checkoutSession.url) {
-    return { error: "Could not start the deposit payment. Please try again." };
+    return { error: "Could not start the payment. Please try again." };
   }
 
   redirect(checkoutSession.url);

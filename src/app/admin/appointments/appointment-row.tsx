@@ -20,6 +20,7 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
   const [markedNoShow, setMarkedNoShow] = useState(false);
 
   const depositPaid = appointment.deposit_status === "paid";
+  const paidInFull = depositPaid && appointment.deposit_amount_cents >= appointment.price_cents;
   const remainingCents = depositPaid
     ? Math.max(0, appointment.price_cents - appointment.deposit_amount_cents)
     : appointment.price_cents;
@@ -55,7 +56,7 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
           <p className="text-sm text-neutral-500">{formatCurrency(appointment.price_cents)} total</p>
           {depositPaid && (
             <span className="badge bg-emerald-100 text-emerald-700">
-              {formatCurrency(appointment.deposit_amount_cents)} deposit paid
+              {paidInFull ? "Paid in full" : `${formatCurrency(appointment.deposit_amount_cents)} deposit paid`}
             </span>
           )}
         </div>
@@ -66,7 +67,11 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
 
         <div>
           <label className="field-label">
-            {depositPaid ? "Remaining balance charged ($)" : "Amount charged ($)"}
+            {paidInFull
+              ? "Additional amount charged ($)"
+              : depositPaid
+                ? "Remaining balance charged ($)"
+                : "Amount charged ($)"}
           </label>
           <input
             type="number"
@@ -77,6 +82,7 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
             className="field-input w-32"
             required
           />
+          {paidInFull && <p className="mt-1 text-xs text-neutral-400">Already paid in full — leave at $0 unless charging extra.</p>}
         </div>
 
         <div>

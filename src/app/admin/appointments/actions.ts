@@ -31,14 +31,19 @@ export async function markAppointmentPaidAndCompleted(
     return { error: "That appointment isn't in a confirmed state anymore." };
   }
 
-  const { error: paymentError } = await serviceRole.from("payments").insert({
-    user_id: appointment.user_id,
-    appointment_id: appointment.id,
-    amount_cents: Math.round(amountDollars * 100),
-    method,
-    status: "paid",
-  });
-  if (paymentError) return { error: "Could not record that payment." };
+  // Skip recording a $0 row — e.g. a member who paid in full at booking
+  // already has a payment row from Stripe, and this step is just marking
+  // the visit complete for them, not charging anything further.
+  if (amountDollars > 0) {
+    const { error: paymentError } = await serviceRole.from("payments").insert({
+      user_id: appointment.user_id,
+      appointment_id: appointment.id,
+      amount_cents: Math.round(amountDollars * 100),
+      method,
+      status: "paid",
+    });
+    if (paymentError) return { error: "Could not record that payment." };
+  }
 
   const { error: statusError } = await serviceRole
     .from("appointments")
