@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/admin/announcements", label: "Early Access" },
   { href: "/admin/appointments", label: "Appointments" },
   { href: "/admin/booking", label: "Booking" },
+  { href: "/admin/messages", label: "Messages" },
   { href: "/admin/loyalty", label: "Loyalty" },
 ];
 

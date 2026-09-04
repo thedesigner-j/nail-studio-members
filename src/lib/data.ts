@@ -159,6 +159,47 @@ export async function getMessages(userId: string) {
   return data ?? [];
 }
 
+// One row per member who has ever messaged the studio, newest activity
+// first, with how many of their messages are unread. Relies on the
+// "messages: admins read all" RLS policy rather than the service role,
+// same as the other admin-read helpers in this file.
+export async function getMessageThreadsForAdmin() {
+  const supabase = await createClient();
+  const { data: messages } = await supabase
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  const rows = messages ?? [];
+  const userIds = [...new Set(rows.map((m) => m.user_id))];
+  if (userIds.length === 0) return [];
+
+  const { data: profiles } = await supabase.from("public_profiles").select("id, full_name").in("id", userIds);
+  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+
+  const threads = new Map<
+    string,
+    { userId: string; memberName: string; lastMessage: string; lastAt: string; unreadCount: number }
+  >();
+
+  for (const m of rows) {
+    if (!threads.has(m.user_id)) {
+      threads.set(m.user_id, {
+        userId: m.user_id,
+        memberName: nameById.get(m.user_id) ?? "A member",
+        lastMessage: m.body,
+        lastAt: m.created_at,
+        unreadCount: 0,
+      });
+    }
+    if (m.sender === "member" && !m.read_at) {
+      threads.get(m.user_id)!.unreadCount += 1;
+    }
+  }
+
+  return [...threads.values()].sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
+}
+
 export async function getLookBookPhotos(currentUserId: string) {
   const supabase = await createClient();
   const { data: photos } = await supabase

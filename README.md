@@ -15,11 +15,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
 - Early Access: admin-posted sales/product/event announcements, members-only, with an unread indicator in the nav
-- Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, or no-show), booking & deposit settings, and loyalty
-
-## Known limitations
-
-- **Message replies**: there's no admin reply UI yet — insert a row into `messages` with `sender = 'business'` for the relevant `user_id` directly in the Supabase Table Editor.
+- Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, cancel, or no-show), booking & deposit settings, loyalty, and a messages inbox to reply to members' threads
 
 ## Setup
 
