@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { getCurrentProfile, getLatestAnnouncementAt } from "@/lib/data";
+import { getCurrentProfile, getLatestAnnouncementAt, getUnreadMessageCount } from "@/lib/data";
 import { signOut } from "../(auth)/actions";
 import NavLinks from "./nav-links";
 
@@ -13,6 +13,7 @@ export default async function MembersLayout({ children }: { children: React.Reac
   const hasNewEarlyAccess = latestAnnouncementAt
     ? !profile.early_access_seen_at || new Date(latestAnnouncementAt) > new Date(profile.early_access_seen_at)
     : false;
+  const hasUnreadMessages = (await getUnreadMessageCount(profile.id)) > 0;
 
   const initial = profile.full_name?.[0]?.toUpperCase() ?? "?";
 
@@ -24,7 +25,7 @@ export default async function MembersLayout({ children }: { children: React.Reac
             <span aria-hidden>✦</span> Nail Studio
           </Link>
 
-          <NavLinks hasNewEarlyAccess={hasNewEarlyAccess} />
+          <NavLinks hasNewEarlyAccess={hasNewEarlyAccess} hasUnreadMessages={hasUnreadMessages} />
 
           <div className="flex shrink-0 items-center gap-3">
             {profile.is_admin && (

@@ -159,6 +159,18 @@ export async function getMessages(userId: string) {
   return data ?? [];
 }
 
+export async function getUnreadMessageCount(userId: string) {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("sender", "business")
+    .is("read_at", null);
+
+  return count ?? 0;
+}
+
 // One row per member who has ever messaged the studio, newest activity
 // first, with how many of their messages are unread. Relies on the
 // "messages: admins read all" RLS policy rather than the service role,

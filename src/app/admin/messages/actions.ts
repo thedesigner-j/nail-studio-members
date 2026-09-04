@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "../require-admin";
+import { sendNewMessageEmail } from "@/lib/notifications";
 
 export async function sendAdminMessage(_prevState: { error: string } | null, formData: FormData) {
   const admin = await requireAdmin();
@@ -15,6 +16,19 @@ export async function sendAdminMessage(_prevState: { error: string } | null, for
   const supabase = await createClient();
   const { error } = await supabase.from("messages").insert({ user_id: userId, sender: "business", body });
   if (error) return { error: "Could not send that message." };
+
+  try {
+    const serviceRole = createServiceRoleClient();
+    const [{ data: userData }, { data: profile }] = await Promise.all([
+      serviceRole.auth.admin.getUserById(userId),
+      serviceRole.from("profiles").select("full_name").eq("id", userId).single(),
+    ]);
+    if (userData?.user?.email) {
+      await sendNewMessageEmail({ to: userData.user.email, memberName: profile?.full_name ?? null });
+    }
+  } catch {
+    // Email is best-effort; the message itself already sent.
+  }
 
   revalidatePath(`/admin/messages/${userId}`);
   revalidatePath("/admin/messages");

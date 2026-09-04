@@ -1,4 +1,5 @@
 import { getCurrentProfile, getMessages } from "@/lib/data";
+import { markMessagesRead } from "./actions";
 import MessageThread from "./message-thread";
 
 export default async function MessagesPage() {
@@ -6,6 +7,7 @@ export default async function MessagesPage() {
   if (!profile) return null;
 
   const messages = await getMessages(profile.id);
+  await markMessagesRead(profile.id);
 
   return (
     <div className="space-y-6">

@@ -106,6 +106,25 @@ export async function sendAdminCancellationNotice(params: {
   );
 }
 
+export async function sendNewMessageEmail(params: { to: string; memberName: string | null }) {
+  const firstName = params.memberName?.split(" ")[0] ?? "there";
+  const appUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+
+  const html = `
+    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
+      <h1 style="font-size: 20px; margin: 0 0 4px;">New message from the studio</h1>
+      <p style="color: #525252; margin: 0 0 16px;">Hi ${firstName}, you've got a new message — log in to read and reply.</p>
+      ${
+        appUrl
+          ? `<a href="${appUrl}/messages" style="display: inline-block; background: #171717; color: #fff; text-decoration: none; padding: 10px 16px; border-radius: 8px; font-size: 14px;">View message</a>`
+          : ""
+      }
+    </div>
+  `;
+
+  await sendEmail({ to: params.to, subject: "New message from Nail Studio", html });
+}
+
 // Every profile flagged is_admin gets studio notification emails (a client
 // cancelling, etc.) — auth.users isn't exposed via the normal data API, so
 // each admin's email has to come from the admin API rather than a join.
