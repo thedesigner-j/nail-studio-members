@@ -21,6 +21,10 @@ export async function sendAdminMessage(_prevState: { error: string } | null, for
   return null;
 }
 
+// Called directly during the thread page's render (not from a form/click),
+// so it can't call revalidatePath itself — that's only valid from an actual
+// Server Action invocation. The thread list re-fetches fresh on its own
+// next load anyway since it's a dynamic, cookie-based route.
 export async function markThreadRead(userId: string) {
   const admin = await requireAdmin();
   if (!admin) return;
@@ -32,6 +36,4 @@ export async function markThreadRead(userId: string) {
     .eq("user_id", userId)
     .eq("sender", "member")
     .is("read_at", null);
-
-  revalidatePath("/admin/messages");
 }
