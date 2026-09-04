@@ -93,7 +93,7 @@ async function AppointmentsList({ userId, tab }: { userId: string; tab: "upcomin
 
             <div className="flex items-center gap-3">
               <p className="text-sm text-neutral-500">{formatCurrency(appt.price_cents)}</p>
-              {tab === "upcoming" && appt.status === "confirmed" && (
+              {tab === "upcoming" && (appt.status === "confirmed" || appt.status === "pending_payment") && (
                 <form action={cancelAppointment}>
                   <input type="hidden" name="appointmentId" value={appt.id} />
                   <button type="submit" className="text-sm font-medium text-rose-600 hover:underline">

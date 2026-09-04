@@ -53,6 +53,12 @@ export async function cancelAppointment(formData: FormData) {
       // a no-show — the payment itself isn't touched, just this label.
       nextDepositStatus = "forfeited";
     }
+  } else if (appointment.deposit_status === "pending") {
+    // Cancelling a booking that never got past Stripe checkout (still
+    // holding the slot, nothing ever charged) — nothing to refund or
+    // forfeit, so just clear the deposit state rather than leave it
+    // stuck at "pending" forever.
+    nextDepositStatus = "none";
   }
 
   // Via service role: 'status' and the deposit fields aren't in the
