@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { bookAppointment } from "./actions";
-import { formatCurrency, formatDollars } from "@/lib/format";
+import { formatCurrency, formatDollars, formatSlotTime } from "@/lib/format";
 
 type Service = {
   id: string;
@@ -136,9 +136,7 @@ export default function BookingForm({
                       : "border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400"
                   }`}
                 >
-                  {new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(
-                    new Date(slot),
-                  )}
+                  {formatSlotTime(slot)}
                 </button>
               ))}
             </div>

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "../require-admin";
+import { zonedDateTimeLocalToUtc } from "@/lib/timezone";
 
 type AnnouncementFields = {
   category: string;
@@ -36,7 +37,7 @@ function parseAnnouncementFields(formData: FormData): ParsedAnnouncement {
       title,
       description: description || null,
       link_url: linkUrl || null,
-      event_at: eventAt ? new Date(eventAt).toISOString() : null,
+      event_at: eventAt ? zonedDateTimeLocalToUtc(eventAt).toISOString() : null,
       ends_at: endsAt ? new Date(endsAt).toISOString() : null,
     },
   };

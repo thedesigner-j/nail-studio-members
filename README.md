@@ -10,7 +10,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Cancellation policy: cancelling far enough ahead (configurable window) auto-refunds the deposit via Stripe; cancelling late or not showing up forfeits it
 - Upcoming appointments, appointment history (with cancel), and payment history — all as tabs on one page
 - Google Calendar sync (connect account, appointments create/delete calendar events)
-- Booking confirmation and appointment reminder emails via Resend (reminders sent hourly, ~24h before each appointment)
+- Booking confirmation and appointment reminder emails via Resend (a hourly-checked reminder ~2 days out, and another the day of)
 - **Loyalty**: a dollar-credit ledger (not points) — members earn credit for creating an account, completing a paid visit, referring a friend, sharing an admin-flagged promo, or leaving a review (the last two require admin approval). Referring a friend generates a link + a ready-to-paste message the member copies and sends themselves (no SMS provider/cost involved). Credit is spent in whole or in part at checkout and expires a year after it's earned. Full admin controls at `/admin/loyalty` (earn rates, shareable posts, review platforms, approval queue, ledger + manual adjustments) and `/admin/appointments` (mark a visit paid & completed, which is what triggers session credit and referral confirmation).
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
@@ -65,7 +65,7 @@ Visit `http://localhost:3000`, sign up, and you'll land on the members dashboard
 
 ### 7. Reminder emails (optional, for appointment reminders)
 
-The edge function in `supabase/functions/send-appointment-reminders` checks hourly for appointments starting in ~24 hours and emails each member directly via Resend's API. Booking confirmation emails don't need this setup — they're sent inline when a booking is confirmed, as long as `RESEND_API_KEY` is set in the app's own environment (step 5).
+The edge function in `supabase/functions/send-appointment-reminders` checks hourly and emails each member directly via Resend's API in two stages, each tracked independently so a last-minute booking doesn't get a stale "2 days away" email: one reminder once the appointment is within 48 hours, and another once it's within 14 hours (effectively "day of"). Booking confirmation emails don't need this setup — they're sent inline when a booking is confirmed, as long as `RESEND_API_KEY` is set in the app's own environment (step 5).
 
 1. Deploy the function: `supabase functions deploy send-appointment-reminders`
 2. Set its secrets: `supabase secrets set RESEND_API_KEY=... EMAIL_FROM='Nail Studio <you@yourdomain.com>' CRON_SECRET=...`

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { zonedTimeToUtc } from "@/lib/timezone";
 
 const SLOT_STEP_MINUTES = 30;
 
@@ -23,8 +24,8 @@ export async function getAvailableSlots(serviceId: string, dateStr: string) {
   const dayHours = hours?.filter((h) => h.day_of_week === date.getDay()) ?? [];
   if (dayHours.length === 0) return [];
 
-  const dayStart = new Date(`${dateStr}T00:00:00`);
-  const dayEnd = new Date(`${dateStr}T23:59:59`);
+  const dayStart = zonedTimeToUtc(dateStr, 0, 0, 0);
+  const dayEnd = zonedTimeToUtc(dateStr, 23, 59, 59);
 
   const { data: existing } = await supabase
     .from("appointments")
@@ -58,10 +59,8 @@ export async function getAvailableSlots(serviceId: string, dateStr: string) {
     const [startH, startM] = window.start_time.split(":").map(Number);
     const [endH, endM] = window.end_time.split(":").map(Number);
 
-    const windowStart = new Date(date);
-    windowStart.setHours(startH, startM, 0, 0);
-    const windowEnd = new Date(date);
-    windowEnd.setHours(endH, endM, 0, 0);
+    const windowStart = zonedTimeToUtc(dateStr, startH, startM);
+    const windowEnd = zonedTimeToUtc(dateStr, endH, endM);
 
     for (
       let slotStart = new Date(windowStart);

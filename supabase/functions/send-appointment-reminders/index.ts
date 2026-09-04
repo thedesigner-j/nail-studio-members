@@ -1,14 +1,39 @@
-// Supabase Edge Function, run on a schedule (see the pg_cron job in
-// supabase/migrations/0004_reminder_schedule.sql). Finds appointments
-// starting in roughly 24 hours that haven't been reminded yet, and emails
-// each member directly via Resend's REST API (no SDK needed in Deno).
+// Supabase Edge Function, run hourly (see the pg_cron job in
+// supabase/migrations/0004_reminder_schedule.sql). Sends two reminders per
+// appointment via Resend's REST API (no SDK needed in Deno): one about 2
+// days out, and one the day of. Each stage tracks its own "already sent"
+// timestamp (0013_reminder_stages.sql) and is checked independently, so a
+// last-minute booking (<14h notice) just gets the day-of reminder and never
+// picks up a stale "2 days away" one.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const REMINDER_WINDOW_START_HOURS = 23;
-const REMINDER_WINDOW_END_HOURS = 25;
+const DAY_OF_WINDOW_HOURS = 14;
+const TWO_DAY_WINDOW_HOURS = 48;
 
+const STAGES = [
+  {
+    column: "reminder_dayof_sent_at",
+    maxHoursOut: DAY_OF_WINDOW_HOURS,
+    minHoursOut: 0,
+    subject: (serviceName: string) => `Reminder: ${serviceName} today`,
+    heading: (firstName: string) => `See you soon, ${firstName}!`,
+    intro: "This is a reminder about your appointment coming up today.",
+  },
+  {
+    column: "reminder_48h_sent_at",
+    maxHoursOut: TWO_DAY_WINDOW_HOURS,
+    minHoursOut: DAY_OF_WINDOW_HOURS,
+    subject: (serviceName: string) => `Reminder: ${serviceName} in 2 days`,
+    heading: (firstName: string) => `Hi ${firstName}, see you in a couple days!`,
+    intro: "Just a heads up on your upcoming appointment — let us know if you need to reschedule.",
+  },
+] as const;
+
+// The salon has one physical location (Las Vegas) — reminder times are
+// always shown in Pacific time, not the server's local (UTC) timezone.
 function formatAppointmentTime(iso: string) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -17,12 +42,11 @@ function formatAppointmentTime(iso: string) {
   }).format(new Date(iso));
 }
 
-function reminderEmailHtml(memberName: string | null, serviceName: string, startsAt: string) {
-  const firstName = memberName?.split(" ")[0] ?? "there";
+function reminderEmailHtml(heading: string, intro: string, serviceName: string, startsAt: string) {
   return `
     <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
-      <h1 style="font-size: 20px; margin: 0 0 4px;">See you soon, ${firstName}!</h1>
-      <p style="color: #525252; margin: 0 0 16px;">This is a reminder about your upcoming appointment.</p>
+      <h1 style="font-size: 20px; margin: 0 0 4px;">${heading}</h1>
+      <p style="color: #525252; margin: 0 0 16px;">${intro}</p>
       <div style="background: #fafaf9; border-radius: 12px; padding: 16px;">
         <p style="margin: 0 0 4px; font-weight: 600;">${serviceName}</p>
         <p style="margin: 0; color: #525252;">${formatAppointmentTime(startsAt)}</p>
@@ -60,48 +84,55 @@ Deno.serve(async (req) => {
   );
 
   const now = Date.now();
-  const windowStart = new Date(now + REMINDER_WINDOW_START_HOURS * 3_600_000).toISOString();
-  const windowEnd = new Date(now + REMINDER_WINDOW_END_HOURS * 3_600_000).toISOString();
-
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select("id, starts_at, user_id, profiles(full_name), services(name)")
-    .eq("status", "confirmed")
-    .is("reminder_sent_at", null)
-    .gte("starts_at", windowStart)
-    .lte("starts_at", windowEnd);
-
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  }
-
+  let checked = 0;
   let sent = 0;
-  for (const appt of appointments ?? []) {
-    // auth.users isn't exposed via the normal data API, so the member's
-    // email has to come from the admin API rather than a select() join.
-    const { data: userData } = await supabase.auth.admin.getUserById(appt.user_id);
-    const email = userData?.user?.email;
-    if (!email) continue;
 
-    const serviceName = appt.services?.name ?? "Appointment";
-    const ok = await sendReminderEmail(
-      resendApiKey,
-      fromAddress,
-      email,
-      reminderEmailHtml(appt.profiles?.full_name ?? null, serviceName, appt.starts_at),
-      `Reminder: ${serviceName} tomorrow`,
-    );
+  for (const stage of STAGES) {
+    const windowStart = new Date(now + stage.minHoursOut * 3_600_000).toISOString();
+    const windowEnd = new Date(now + stage.maxHoursOut * 3_600_000).toISOString();
 
-    if (ok) {
-      await supabase
-        .from("appointments")
-        .update({ reminder_sent_at: new Date().toISOString() })
-        .eq("id", appt.id);
-      sent += 1;
+    const { data: appointments, error } = await supabase
+      .from("appointments")
+      .select("id, starts_at, user_id, profiles(full_name), services(name)")
+      .eq("status", "confirmed")
+      .is(stage.column, null)
+      .gt("starts_at", windowStart)
+      .lte("starts_at", windowEnd);
+
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    }
+
+    checked += appointments?.length ?? 0;
+
+    for (const appt of appointments ?? []) {
+      // auth.users isn't exposed via the normal data API, so the member's
+      // email has to come from the admin API rather than a select() join.
+      const { data: userData } = await supabase.auth.admin.getUserById(appt.user_id);
+      const email = userData?.user?.email;
+      if (!email) continue;
+
+      const serviceName = appt.services?.name ?? "Appointment";
+      const firstName = appt.profiles?.full_name?.split(" ")[0] ?? "there";
+      const ok = await sendReminderEmail(
+        resendApiKey,
+        fromAddress,
+        email,
+        reminderEmailHtml(stage.heading(firstName), stage.intro, serviceName, appt.starts_at),
+        stage.subject(serviceName),
+      );
+
+      if (ok) {
+        await supabase
+          .from("appointments")
+          .update({ [stage.column]: new Date().toISOString() })
+          .eq("id", appt.id);
+        sent += 1;
+      }
     }
   }
 
-  return new Response(JSON.stringify({ checked: appointments?.length ?? 0, sent }), {
+  return new Response(JSON.stringify({ checked, sent }), {
     headers: { "Content-Type": "application/json" },
   });
 });
