@@ -80,15 +80,28 @@ async function AppointmentsList({ userId, tab }: { userId: string; tab: "upcomin
 
   return (
     <ul className="space-y-3">
-      {appointments.map((appt) => (
+      {appointments.map((appt) => {
+        const depositPaid = appt.deposit_status === "paid";
+        const paidInFull = depositPaid && appt.deposit_amount_cents >= appt.price_cents;
+        const remainingCents = appt.price_cents - appt.deposit_amount_cents;
+
+        return (
         <li key={appt.id} className="card">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-neutral-900">{appt.services?.name}</p>
               <p className="text-sm text-neutral-500">{formatAppointmentTime(appt.starts_at)}</p>
-              <span className="badge mt-1 bg-neutral-100 text-neutral-600">
-                {STATUS_LABEL[appt.status] ?? appt.status}
-              </span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <span className="badge bg-neutral-100 text-neutral-600">
+                  {STATUS_LABEL[appt.status] ?? appt.status}
+                </span>
+                {paidInFull && <span className="badge bg-emerald-100 text-emerald-700">Paid in full</span>}
+                {depositPaid && !paidInFull && (
+                  <span className="badge bg-amber-100 text-amber-700">
+                    Remaining balance: {formatCurrency(remainingCents)}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -112,7 +125,8 @@ async function AppointmentsList({ userId, tab }: { userId: string; tab: "upcomin
             />
           )}
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
