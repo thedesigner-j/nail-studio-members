@@ -562,3 +562,18 @@ export async function getAllClientsForAdmin(): Promise<AdminClientRow[]> {
       };
     });
 }
+
+export type AdminAccount = { id: string; fullName: string; email: string | null };
+
+// Every profile currently flagged is_admin, for the "manage admins" panel.
+export async function getAdminAccounts(): Promise<AdminAccount[]> {
+  const serviceRole = createServiceRoleClient();
+  const { data: profiles } = await serviceRole.from("profiles").select("id, full_name").eq("is_admin", true);
+
+  return Promise.all(
+    (profiles ?? []).map(async (profile) => {
+      const { data } = await serviceRole.auth.admin.getUserById(profile.id);
+      return { id: profile.id, fullName: profile.full_name ?? "Unnamed", email: data?.user?.email ?? null };
+    }),
+  );
+}

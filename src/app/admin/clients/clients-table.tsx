@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import type { AdminClientRow } from "@/lib/data";
 import { formatCurrency, formatDollars, formatShortDate } from "@/lib/format";
+import { promoteToAdmin } from "./actions";
 
 type SortKey = "totalSpentCents" | "totalBookings" | "memberSince" | "creditBalance" | "lastVisitAt";
 
@@ -18,17 +19,19 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 export default function ClientsTable({ clients }: { clients: AdminClientRow[] }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("totalSpentCents");
+  const [promotedIds, setPromotedIds] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
+    const remaining = clients.filter((c) => !promotedIds.has(c.id));
     const q = query.trim().toLowerCase();
     const rows = q
-      ? clients.filter(
+      ? remaining.filter(
           (c) =>
             c.fullName.toLowerCase().includes(q) ||
             c.email?.toLowerCase().includes(q) ||
             c.phone?.toLowerCase().includes(q),
         )
-      : clients;
+      : remaining;
 
     return [...rows].sort((a, b) => {
       const av = a[sortKey];
@@ -37,7 +40,7 @@ export default function ClientsTable({ clients }: { clients: AdminClientRow[] })
       if (bv === null) return -1;
       return av < bv ? 1 : av > bv ? -1 : 0;
     });
-  }, [clients, query, sortKey]);
+  }, [clients, promotedIds, query, sortKey]);
 
   return (
     <div className="space-y-3">
@@ -81,6 +84,7 @@ export default function ClientsTable({ clients }: { clients: AdminClientRow[] })
               <th className="px-4 py-3 font-medium">Credit balance</th>
               <th className="px-4 py-3 font-medium">Lifetime earned</th>
               <th className="px-4 py-3 font-medium">Referrals</th>
+              <th className="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
@@ -118,6 +122,9 @@ export default function ClientsTable({ clients }: { clients: AdminClientRow[] })
                 <td className="px-4 py-3 text-neutral-500">
                   {client.referralsConfirmed}/{client.referralsSent}
                 </td>
+                <td className="px-4 py-3">
+                  <MakeAdminButton clientId={client.id} onPromoted={() => setPromotedIds((prev) => new Set(prev).add(client.id))} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -128,5 +135,25 @@ export default function ClientsTable({ clients }: { clients: AdminClientRow[] })
         )}
       </div>
     </div>
+  );
+}
+
+function MakeAdminButton({ clientId, onPromoted }: { clientId: string; onPromoted: () => void }) {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        onPromoted();
+        startTransition(() => {
+          promoteToAdmin(clientId);
+        });
+      }}
+      className="whitespace-nowrap text-sm font-medium text-neutral-500 hover:text-neutral-900 hover:underline"
+    >
+      Make admin
+    </button>
   );
 }

@@ -1,8 +1,13 @@
-import { getAllClientsForAdmin } from "@/lib/data";
+import { getAllClientsForAdmin, getAdminAccounts, getCurrentProfile } from "@/lib/data";
 import ClientsTable from "./clients-table";
+import AdminsPanel from "./admins-panel";
 
 export default async function AdminClientsPage() {
-  const clients = await getAllClientsForAdmin();
+  const [clients, admins, profile] = await Promise.all([
+    getAllClientsForAdmin(),
+    getAdminAccounts(),
+    getCurrentProfile(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -12,6 +17,8 @@ export default async function AdminClientsPage() {
           Every member, with bookings, spend, loyalty, and referral activity at a glance.
         </p>
       </div>
+
+      <AdminsPanel admins={admins} currentAdminId={profile?.id ?? ""} />
 
       <ClientsTable clients={clients} />
     </div>
