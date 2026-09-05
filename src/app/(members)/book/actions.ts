@@ -20,6 +20,23 @@ export async function bookAppointment(_prevState: { error: string } | null, form
   const notes = String(formData.get("notes") || "") || null;
   const requestedCredit = Math.max(0, Number(formData.get("creditToApply")) || 0);
   const payInFull = String(formData.get("paymentOption")) === "full";
+  const referencePhotoUrl = String(formData.get("referencePhotoUrl") || "") || null;
+
+  // Trusting the collection id straight from the form would let a member
+  // tag someone else's private collection onto their own appointment —
+  // verify it's actually theirs with the member's own RLS-scoped client
+  // before it goes into a service-role insert.
+  const referenceCollectionIdRaw = String(formData.get("referenceCollectionId") || "") || null;
+  let referenceCollectionId: string | null = null;
+  if (referenceCollectionIdRaw) {
+    const { data: collection } = await supabase
+      .from("collections")
+      .select("id")
+      .eq("id", referenceCollectionIdRaw)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    referenceCollectionId = collection?.id ?? null;
+  }
 
   const { data: service } = await supabase
     .from("services")
@@ -78,6 +95,8 @@ export async function bookAppointment(_prevState: { error: string } | null, form
       deposit_status: dueTodayBaseCents > 0 ? "pending" : "none",
       status: "pending_payment",
       notes,
+      reference_photo_url: referencePhotoUrl,
+      reference_collection_id: referenceCollectionId,
     })
     .select()
     .single();

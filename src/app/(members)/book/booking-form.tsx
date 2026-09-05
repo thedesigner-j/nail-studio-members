@@ -4,6 +4,7 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import { bookAppointment } from "./actions";
 import { formatCurrency, formatDollars, formatSlotTime } from "@/lib/format";
 import { zonedDateParts } from "@/lib/timezone";
+import ReferencePicker from "./reference-picker";
 
 type Service = {
   id: string;
@@ -12,6 +13,8 @@ type Service = {
   duration_minutes: number;
   price_cents: number;
 };
+
+type Collection = { id: string; name: string };
 
 const BOOKING_WINDOW_DAYS = 60;
 
@@ -50,12 +53,16 @@ export default function BookingForm({
   depositPercent,
   cancellationRefundHours,
   openDaysOfWeek,
+  userId,
+  collections,
 }: {
   services: Service[];
   creditBalance: number;
   depositPercent: number;
   cancellationRefundHours: number;
   openDaysOfWeek: number[];
+  userId: string;
+  collections: Collection[];
 }) {
   const [state, formAction, pending] = useActionState(bookAppointment, null);
   const [serviceId, setServiceId] = useState(services[0]?.id ?? "");
@@ -258,6 +265,8 @@ export default function BookingForm({
             placeholder="Any requests for your nail tech?"
           />
         </div>
+
+        <ReferencePicker userId={userId} collections={collections} />
 
         {selectedService && dueTodayBaseCents > 0 && (
           <div className="rounded-xl bg-neutral-50 p-3 text-sm">

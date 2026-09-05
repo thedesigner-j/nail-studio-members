@@ -4,6 +4,7 @@ import {
   getCreditBalance,
   getBookingSettings,
   getBusinessHours,
+  getMyCollections,
 } from "@/lib/data";
 import BookingForm from "./booking-form";
 
@@ -16,11 +17,12 @@ export default async function BookPage({
   const profile = await getCurrentProfile();
   if (!profile) return null;
 
-  const [services, creditBalance, bookingSettings, businessHours] = await Promise.all([
+  const [services, creditBalance, bookingSettings, businessHours, collections] = await Promise.all([
     getActiveServices(),
     getCreditBalance(profile.id),
     getBookingSettings(),
     getBusinessHours(),
+    getMyCollections(profile.id),
   ]);
   const openDaysOfWeek = businessHours.map((h) => h.day_of_week);
 
@@ -45,6 +47,8 @@ export default async function BookPage({
         depositPercent={bookingSettings?.deposit_percent ?? 20}
         cancellationRefundHours={bookingSettings?.cancellation_refund_hours ?? 24}
         openDaysOfWeek={openDaysOfWeek}
+        collections={collections.map((c) => ({ id: c.id, name: c.name }))}
+        userId={profile.id}
       />
     </div>
   );

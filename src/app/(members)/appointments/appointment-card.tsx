@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { cancelAppointment } from "./actions";
 import { formatAppointmentTime, formatCurrency } from "@/lib/format";
 import PhotoUploader from "./photo-uploader";
@@ -23,6 +24,9 @@ type Appointment = {
   deposit_amount_cents: number;
   services: { name: string } | null;
   visit_photos?: { id: string; image_url: string }[];
+  reference_photo_url?: string | null;
+  reference_collection_id?: string | null;
+  collections?: { name: string } | null;
 };
 
 export default function AppointmentCard({
@@ -81,6 +85,24 @@ export default function AppointmentCard({
               </span>
             )}
           </div>
+
+          {(appointment.reference_photo_url || appointment.collections) && (
+            <div className="mt-2 flex items-center gap-2">
+              {appointment.reference_photo_url && (
+                <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg">
+                  <Image src={appointment.reference_photo_url} alt="Reference" fill unoptimized className="object-cover" />
+                </div>
+              )}
+              {appointment.collections && appointment.reference_collection_id && (
+                <Link
+                  href={`/collections/${appointment.reference_collection_id}`}
+                  className="text-xs font-medium text-neutral-500 hover:underline"
+                >
+                  Inspired by: {appointment.collections.name}
+                </Link>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

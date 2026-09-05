@@ -96,7 +96,7 @@ export async function getUpcomingAppointments(userId: string) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("appointments")
-    .select("*, services(name, duration_minutes)")
+    .select("*, services(name, duration_minutes), collections(name)")
     .eq("user_id", userId)
     .neq("status", "cancelled")
     .gte("starts_at", new Date().toISOString())
@@ -111,7 +111,7 @@ export async function getConfirmedAppointmentsForAdmin() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("appointments")
-    .select("*, services(name)")
+    .select("*, services(name), collections(name, collection_photos(visit_photos(image_url)))")
     .eq("status", "confirmed")
     .order("starts_at", { ascending: true });
 

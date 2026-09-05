@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import Image from "next/image";
 import { markAppointmentPaidAndCompleted, markAppointmentNoShow, cancelAppointmentAsAdmin } from "./actions";
 import { formatAppointmentTime, formatCurrency } from "@/lib/format";
 
@@ -12,6 +13,11 @@ type Appointment = {
   deposit_status: string;
   deposit_amount_cents: number;
   services: { name: string } | null;
+  reference_photo_url?: string | null;
+  collections?: {
+    name: string;
+    collection_photos?: { visit_photos: { image_url: string } | null }[];
+  } | null;
 };
 
 export default function AppointmentRow({ appointment }: { appointment: Appointment }) {
@@ -71,6 +77,34 @@ export default function AppointmentRow({ appointment }: { appointment: Appointme
           )}
         </div>
       </div>
+
+      {(appointment.reference_photo_url || appointment.collections) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-neutral-50 p-2">
+          {appointment.reference_photo_url && (
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+              <Image src={appointment.reference_photo_url} alt="Reference" fill unoptimized className="object-cover" />
+            </div>
+          )}
+          {appointment.collections && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-neutral-500">
+                Inspired by &ldquo;{appointment.collections.name}&rdquo;:
+              </span>
+              <div className="flex -space-x-2">
+                {(appointment.collections.collection_photos ?? [])
+                  .slice(0, 4)
+                  .map((cp, i) =>
+                    cp.visit_photos ? (
+                      <div key={i} className="relative h-8 w-8 overflow-hidden rounded-full border-2 border-white">
+                        <Image src={cp.visit_photos.image_url} alt="" fill unoptimized className="object-cover" />
+                      </div>
+                    ) : null,
+                  )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <form action={formAction} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="appointmentId" value={appointment.id} />
