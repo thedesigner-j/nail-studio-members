@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentProfile, getLatestAnnouncementAt, getUnreadMessageCount } from "@/lib/data";
 import { signOut } from "../(auth)/actions";
 import NavLinks from "./nav-links";
+import BottomNav from "./bottom-nav";
 
 export default async function MembersLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
@@ -25,15 +26,20 @@ export default async function MembersLayout({ children }: { children: React.Reac
             <span aria-hidden>✦</span> Nail Studio
           </Link>
 
-          <NavLinks hasNewEarlyAccess={hasNewEarlyAccess} hasUnreadMessages={hasUnreadMessages} />
+          <div className="hidden md:block">
+            <NavLinks hasNewEarlyAccess={hasNewEarlyAccess} hasUnreadMessages={hasUnreadMessages} />
+          </div>
 
           <div className="flex shrink-0 items-center gap-3">
             {profile.is_admin && (
-              <Link href="/admin" className="text-sm font-medium text-neutral-600 hover:text-neutral-900">
+              <Link
+                href="/admin"
+                className="hidden text-sm font-medium text-neutral-600 hover:text-neutral-900 md:inline-block"
+              >
                 Admin
               </Link>
             )}
-            <form action={signOut}>
+            <form action={signOut} className="hidden md:block">
               <button type="submit" className="text-sm text-neutral-400 hover:text-neutral-700">
                 Sign out
               </button>
@@ -52,7 +58,14 @@ export default async function MembersLayout({ children }: { children: React.Reac
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 pb-28 pt-8 md:pb-8">{children}</main>
+
+      <BottomNav
+        hasNewEarlyAccess={hasNewEarlyAccess}
+        hasUnreadMessages={hasUnreadMessages}
+        isAdmin={profile.is_admin}
+        signOutAction={signOut}
+      />
     </div>
   );
 }
