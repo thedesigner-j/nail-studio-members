@@ -38,3 +38,16 @@ export async function demoteAdmin(userId: string) {
 
   revalidatePath("/admin/clients");
 }
+
+// Techs get Skill Projects assigned to them. Like is_admin, is_tech isn't in
+// the member-facing column grants, so only this admin-gated action sets it.
+export async function setTechRole(userId: string, isTech: boolean) {
+  const admin = await requireAdmin();
+  if (!admin) return;
+
+  const serviceRole = createServiceRoleClient();
+  await serviceRole.from("profiles").update({ is_tech: isTech }).eq("id", userId);
+
+  revalidatePath("/admin/clients");
+  revalidatePath("/admin/skill-projects");
+}

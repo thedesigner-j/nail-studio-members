@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { toggleLike, saveToCollection, createCollectionAndSave } from "./actions";
 
 type Photo = {
@@ -16,9 +17,11 @@ type Collection = { id: string; name: string };
 export default function PhotoCard({
   photo,
   collections,
+  isAdmin = false,
 }: {
   photo: Photo;
   collections: Collection[];
+  isAdmin?: boolean;
 }) {
   const [liked, setLiked] = useState(photo.likedByMe);
   const [likeCount, setLikeCount] = useState(photo.likeCount);
@@ -142,6 +145,15 @@ export default function PhotoCard({
           )}
         </div>
       </div>
+
+      {isAdmin && (
+        <Link
+          href={`/admin/skill-projects/new?photo=${photo.id}`}
+          className="block border-t border-neutral-100 px-3 py-2 text-xs font-medium text-neutral-500 hover:text-neutral-900"
+        >
+          Make a practice project →
+        </Link>
+      )}
     </div>
   );
 }

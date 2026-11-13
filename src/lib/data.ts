@@ -500,6 +500,7 @@ export type AdminClientRow = {
   lifetimeEarned: number;
   referralsSent: number;
   referralsConfirmed: number;
+  isTech: boolean;
 };
 
 // Admin-only, so this reads via the service role rather than adding an
@@ -512,7 +513,7 @@ export async function getAllClientsForAdmin(): Promise<AdminClientRow[]> {
 
   const [{ data: profiles }, { data: userList }, { data: appointments }, { data: payments }, { data: credits }, { data: invites }] =
     await Promise.all([
-      serviceRole.from("profiles").select("id, full_name, avatar_url, phone, created_at, is_admin"),
+      serviceRole.from("profiles").select("id, full_name, avatar_url, phone, created_at, is_admin, is_tech"),
       serviceRole.auth.admin.listUsers({ perPage: 1000 }),
       serviceRole.from("appointments").select("user_id, status, starts_at"),
       serviceRole.from("payments").select("user_id, amount_cents, status"),
@@ -559,21 +560,27 @@ export async function getAllClientsForAdmin(): Promise<AdminClientRow[]> {
           .reduce((sum, c) => sum + c.amount, 0),
         referralsSent: myInvites.length,
         referralsConfirmed: myInvites.filter((i) => i.status === "confirmed").length,
+        isTech: !!profile.is_tech,
       };
     });
 }
 
-export type AdminAccount = { id: string; fullName: string; email: string | null };
+export type AdminAccount = { id: string; fullName: string; email: string | null; isTech: boolean };
 
 // Every profile currently flagged is_admin, for the "manage admins" panel.
 export async function getAdminAccounts(): Promise<AdminAccount[]> {
   const serviceRole = createServiceRoleClient();
-  const { data: profiles } = await serviceRole.from("profiles").select("id, full_name").eq("is_admin", true);
+  const { data: profiles } = await serviceRole.from("profiles").select("id, full_name, is_tech").eq("is_admin", true);
 
   return Promise.all(
     (profiles ?? []).map(async (profile) => {
       const { data } = await serviceRole.auth.admin.getUserById(profile.id);
-      return { id: profile.id, fullName: profile.full_name ?? "Unnamed", email: data?.user?.email ?? null };
+      return {
+        id: profile.id,
+        fullName: profile.full_name ?? "Unnamed",
+        email: data?.user?.email ?? null,
+        isTech: !!profile.is_tech,
+      };
     }),
   );
 }

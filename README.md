@@ -15,6 +15,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
 - Early Access: admin-posted sales/product/event announcements, members-only, with an unread indicator in the nav
+- **Skill Projects**: practice projects the admin assigns to a nail tech (`/admin/skill-projects`). Each has a reference (a Look Book photo, an uploaded image or an outside link), tutorial links (YouTube plays in the app), a goals checklist, due date and priority. The tech works through them under **My Projects**: they submit photos plus links to videos hosted elsewhere, and the admin approves or sends the work back with feedback. Approved work forms the tech's portfolio. Give someone the tech role from the Clients page; an admin can be a tech too. Photos are kept in a private storage bucket and only shown through short-lived links.
 - Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, cancel, or no-show), booking & deposit settings, loyalty, and a messages inbox to reply to members' threads
 
 ## Local development
@@ -62,7 +63,7 @@ Press Control+C to stop the app.
    npm run dev
    ```
 
-Sign in with the seeded admin account, `admin@example.com` / `password123`, or sign up a new member. Locally, sign-ups don't need email confirmation.
+Sign in with the seeded admin account, `admin@example.com` / `password123`, or the seeded nail tech, `tech@example.com` / `password123` (for Skill Projects), or sign up a new member. Locally, sign-ups don't need email confirmation.
 
 Useful while developing:
 

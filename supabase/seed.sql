@@ -47,3 +47,34 @@ insert into auth.identities (
 
 update public.profiles set is_admin = true
 where id = '00000000-0000-0000-0000-00000000a0a0';
+
+-- A nail tech account for trying Skill Projects:  tech@example.com / password123
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, email_change, email_change_token_new, recovery_token
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '00000000-0000-0000-0000-00000000b0b0',
+  'authenticated', 'authenticated',
+  'tech@example.com',
+  extensions.crypt('password123', extensions.gen_salt('bf')),
+  now(),
+  '{"provider": "email", "providers": ["email"]}',
+  '{"full_name": "Nail Tech"}',
+  now(), now(), '', '', '', ''
+);
+
+insert into auth.identities (
+  id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-00000000b0b0',
+  '00000000-0000-0000-0000-00000000b0b0',
+  '00000000-0000-0000-0000-00000000b0b0',
+  'email',
+  '{"sub": "00000000-0000-0000-0000-00000000b0b0", "email": "tech@example.com", "email_verified": true}',
+  now(), now(), now()
+);
+
+update public.profiles set is_tech = true
+where id = '00000000-0000-0000-0000-00000000b0b0';

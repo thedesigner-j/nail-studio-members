@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getCurrentProfile, getLatestAnnouncementAt, getUnreadMessageCount } from "@/lib/data";
+import { getWaitingForReviewCount, hasProjectUpdates as getHasProjectUpdates } from "@/lib/skill-projects-data";
 import { signOut } from "../(auth)/actions";
 import NavLinks from "./nav-links";
 import BottomNav from "./bottom-nav";
@@ -15,6 +16,11 @@ export default async function MembersLayout({ children }: { children: React.Reac
     ? !profile.early_access_seen_at || new Date(latestAnnouncementAt) > new Date(profile.early_access_seen_at)
     : false;
   const hasUnreadMessages = (await getUnreadMessageCount(profile.id)) > 0;
+  const isTech = !!profile.is_tech;
+  const [hasProjectUpdates, waitingForReview] = await Promise.all([
+    isTech ? getHasProjectUpdates(profile.id) : false,
+    profile.is_admin ? getWaitingForReviewCount() : 0,
+  ]);
 
   const initial = profile.full_name?.[0]?.toUpperCase() ?? "?";
 
@@ -27,16 +33,27 @@ export default async function MembersLayout({ children }: { children: React.Reac
           </Link>
 
           <div className="hidden md:block">
-            <NavLinks hasNewEarlyAccess={hasNewEarlyAccess} hasUnreadMessages={hasUnreadMessages} />
+            <NavLinks
+              hasNewEarlyAccess={hasNewEarlyAccess}
+              hasUnreadMessages={hasUnreadMessages}
+              isTech={isTech}
+              hasProjectUpdates={hasProjectUpdates}
+            />
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
             {profile.is_admin && (
               <Link
                 href="/admin"
-                className="hidden text-sm font-medium text-neutral-600 hover:text-neutral-900 md:inline-block"
+                className="relative hidden text-sm font-medium text-neutral-600 hover:text-neutral-900 md:inline-block"
               >
                 Admin
+                {waitingForReview > 0 && (
+                  <span
+                    aria-label="Projects waiting for review"
+                    className="absolute -right-2 -top-0.5 h-2 w-2 rounded-full bg-rose-500"
+                  />
+                )}
               </Link>
             )}
             <form action={signOut} className="hidden md:block">
@@ -64,6 +81,9 @@ export default async function MembersLayout({ children }: { children: React.Reac
         hasNewEarlyAccess={hasNewEarlyAccess}
         hasUnreadMessages={hasUnreadMessages}
         isAdmin={profile.is_admin}
+        isTech={isTech}
+        hasProjectUpdates={hasProjectUpdates}
+        hasProjectsToReview={waitingForReview > 0}
         signOutAction={signOut}
       />
     </div>

@@ -86,3 +86,14 @@ export function zonedDateParts(
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return { year: get("year"), month: get("month"), day: get("day") };
 }
+
+// Today's calendar date in the salon's timezone, as "YYYY-MM-DD" (en-CA
+// formats dates that way), for comparing against plain `date` columns.
+export function todayInBusinessTimezone(now: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}

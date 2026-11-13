@@ -16,19 +16,25 @@ const NAV_ITEMS = [
 export default function NavLinks({
   hasNewEarlyAccess,
   hasUnreadMessages,
+  isTech,
+  hasProjectUpdates,
 }: {
   hasNewEarlyAccess: boolean;
   hasUnreadMessages: boolean;
+  isTech: boolean;
+  hasProjectUpdates: boolean;
 }) {
   const pathname = usePathname();
+  const items = isTech ? [...NAV_ITEMS, { href: "/my-projects", label: "My Projects" }] : NAV_ITEMS;
 
   return (
     <nav className="flex flex-wrap gap-1">
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const active = pathname.startsWith(item.href);
         const showDot =
           (item.href === "/early-access" && hasNewEarlyAccess) ||
-          (item.href === "/messages" && hasUnreadMessages);
+          (item.href === "/messages" && hasUnreadMessages) ||
+          (item.href === "/my-projects" && hasProjectUpdates);
         return (
           <Link key={item.href} href={item.href} className={`relative ${active ? "nav-pill-active" : "nav-pill"}`}>
             {item.label}

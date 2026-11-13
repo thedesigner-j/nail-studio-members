@@ -115,3 +115,13 @@ export function LogoutIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function BrushIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M14.5 4.5 19.5 9.5 11 18l-5-5z" />
+      <path d="M6 13c-2 .5-2.5 2.5-2.5 4.5V20h2.5c2 0 4-.5 4.5-2.5" />
+      <path d="M16.5 7.5 18 6" />
+    </svg>
+  );
+}

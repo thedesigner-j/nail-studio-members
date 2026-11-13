@@ -15,6 +15,7 @@ import {
   UserIcon,
   GridIcon,
   LogoutIcon,
+  BrushIcon,
 } from "./icons";
 
 type IconComponent = ComponentType<{ className?: string }>;
@@ -26,23 +27,29 @@ const PRIMARY_TABS: { href: string; label: string; icon: IconComponent }[] = [
   { href: "/loyalty", label: "Loyalty", icon: StarIcon },
 ];
 
-const MORE_ROUTES = ["/early-access", "/look-book", "/messages", "/profile", "/admin"];
+const MORE_ROUTES = ["/early-access", "/look-book", "/messages", "/my-projects", "/profile", "/admin"];
 
 export default function BottomNav({
   hasNewEarlyAccess,
   hasUnreadMessages,
   isAdmin,
+  isTech,
+  hasProjectUpdates,
+  hasProjectsToReview,
   signOutAction,
 }: {
   hasNewEarlyAccess: boolean;
   hasUnreadMessages: boolean;
   isAdmin: boolean;
+  isTech: boolean;
+  hasProjectUpdates: boolean;
+  hasProjectsToReview: boolean;
   signOutAction: () => void | Promise<void>;
 }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const moreHasBadge = hasNewEarlyAccess || hasUnreadMessages;
+  const moreHasBadge = hasNewEarlyAccess || hasUnreadMessages || hasProjectUpdates || hasProjectsToReview;
   const moreActive = MORE_ROUTES.some((route) => pathname.startsWith(route));
 
   return (
@@ -74,8 +81,25 @@ export default function BottomNav({
               badge={hasUnreadMessages}
               onNavigate={() => setMoreOpen(false)}
             />
+            {isTech && (
+              <MoreItem
+                href="/my-projects"
+                label="My Projects"
+                icon={BrushIcon}
+                badge={hasProjectUpdates}
+                onNavigate={() => setMoreOpen(false)}
+              />
+            )}
             <MoreItem href="/profile" label="Profile" icon={UserIcon} onNavigate={() => setMoreOpen(false)} />
-            {isAdmin && <MoreItem href="/admin" label="Admin" icon={GridIcon} onNavigate={() => setMoreOpen(false)} />}
+            {isAdmin && (
+              <MoreItem
+                href="/admin"
+                label="Admin"
+                icon={GridIcon}
+                badge={hasProjectsToReview}
+                onNavigate={() => setMoreOpen(false)}
+              />
+            )}
           </ul>
           <form action={signOutAction} className="border-t border-neutral-100 px-4 py-3">
             <button type="submit" className="flex items-center gap-3 text-sm font-medium text-neutral-500">
