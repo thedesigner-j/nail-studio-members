@@ -1,6 +1,9 @@
 "use client";
 
-export default function BrandLink() {
+import BrandMark from "@/components/brand-mark";
+import type { Branding } from "@/lib/branding";
+
+export default function BrandLink({ branding }: { branding: Branding }) {
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
     // See redirect-if-authenticated.tsx for why this uses window.location
@@ -18,9 +21,9 @@ export default function BrandLink() {
     <a
       href="/dashboard"
       onClick={handleClick}
-      className="mb-6 flex items-center gap-1.5 font-semibold text-neutral-900"
+      className="mb-6 flex"
     >
-      <span aria-hidden>✦</span> Nail Studio
+      <BrandMark branding={branding} size="lg" />
     </a>
   );
 }

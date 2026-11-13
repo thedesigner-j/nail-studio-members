@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email";
 import { formatAppointmentTime, formatCurrency } from "@/lib/format";
+import { getBranding } from "@/lib/branding";
+
+// The studio name is admin-entered text going into email HTML.
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
 export async function sendBookingConfirmationEmail(params: {
   to: string;
@@ -11,11 +17,12 @@ export async function sendBookingConfirmationEmail(params: {
   remainingCents: number;
 }) {
   const firstName = params.memberName?.split(" ")[0] ?? "there";
+  const { name: studioName } = await getBranding();
 
   const html = `
     <div style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
       <h1 style="font-size: 20px; margin: 0 0 4px;">You're booked, ${firstName}! 🎉</h1>
-      <p style="color: #525252; margin: 0 0 16px;">Here's your confirmation for Nail Studio.</p>
+      <p style="color: #525252; margin: 0 0 16px;">Here's your confirmation for ${escapeHtml(studioName)}.</p>
       <div style="background: #fafaf9; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
         <p style="margin: 0 0 4px; font-weight: 600;">${params.serviceName}</p>
         <p style="margin: 0; color: #525252;">${formatAppointmentTime(params.startsAt)}</p>
@@ -183,7 +190,8 @@ export async function sendNewMessageEmail(params: { to: string; memberName: stri
     </div>
   `;
 
-  await sendEmail({ to: params.to, subject: "New message from Nail Studio", html });
+  const { name: studioName } = await getBranding();
+  await sendEmail({ to: params.to, subject: `New message from ${studioName}`, html });
 }
 
 // Every profile flagged is_admin gets studio notification emails (a client

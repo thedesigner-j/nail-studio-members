@@ -3,6 +3,8 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getCurrentProfile, getLatestAnnouncementAt, getUnreadMessageCount } from "@/lib/data";
 import { getWaitingForReviewCount, hasProjectUpdates as getHasProjectUpdates } from "@/lib/skill-projects-data";
+import { getBranding } from "@/lib/branding";
+import BrandMark from "@/components/brand-mark";
 import { signOut } from "../(auth)/actions";
 import NavLinks from "./nav-links";
 import BottomNav from "./bottom-nav";
@@ -17,9 +19,10 @@ export default async function MembersLayout({ children }: { children: React.Reac
     : false;
   const hasUnreadMessages = (await getUnreadMessageCount(profile.id)) > 0;
   const isTech = !!profile.is_tech;
-  const [hasProjectUpdates, waitingForReview] = await Promise.all([
+  const [hasProjectUpdates, waitingForReview, branding] = await Promise.all([
     isTech ? getHasProjectUpdates(profile.id) : false,
     profile.is_admin ? getWaitingForReviewCount() : 0,
+    getBranding(),
   ]);
 
   const initial = profile.full_name?.[0]?.toUpperCase() ?? "?";
@@ -28,8 +31,8 @@ export default async function MembersLayout({ children }: { children: React.Reac
     <div className="min-h-screen bg-neutral-50">
       <header className="sticky top-0 z-20 border-b border-neutral-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-          <Link href="/dashboard" className="flex shrink-0 items-center gap-1.5 font-semibold text-neutral-900">
-            <span aria-hidden>✦</span> Nail Studio
+          <Link href="/dashboard" className="min-w-0">
+            <BrandMark branding={branding} />
           </Link>
 
           <div className="hidden md:block">

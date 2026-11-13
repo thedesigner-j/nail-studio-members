@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/admin/booking", label: "Booking" },
   { href: "/admin/messages", label: "Messages" },
   { href: "/admin/loyalty", label: "Loyalty" },
+  { href: "/admin/branding", label: "Branding" },
 ];
 
 // On phones this is one row you swipe sideways (wrapping it made the header

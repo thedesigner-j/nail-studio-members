@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { getBranding } from "@/lib/branding";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
@@ -88,10 +89,11 @@ export async function createCalendarEvent(
   const client = await getCalendarClientForUser(supabase, userId);
   if (!client) return null;
 
+  const { name: studioName } = await getBranding();
   const { data } = await client.calendar.events.insert({
     calendarId: client.calendarId,
     requestBody: {
-      summary: `Nail Studio: ${serviceName}`,
+      summary: `${studioName}: ${serviceName}`,
       description: appointment.notes ?? undefined,
       start: { dateTime: appointment.starts_at },
       end: { dateTime: appointment.ends_at },
