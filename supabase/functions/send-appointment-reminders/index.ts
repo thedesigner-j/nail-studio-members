@@ -76,12 +76,17 @@ Deno.serve(async (req) => {
   if (!resendApiKey) {
     return new Response("RESEND_API_KEY is not configured", { status: 500 });
   }
-  const fromAddress = Deno.env.get("EMAIL_FROM") || "Nail Studio <onboarding@resend.dev>";
-
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
+  // Sender name follows Admin > Branding; EMAIL_FROM supplies the address.
+  const configuredFrom = Deno.env.get("EMAIL_FROM") || "onboarding@resend.dev";
+  const address = configuredFrom.match(/<([^>]+)>/)?.[1] ?? configuredFrom.trim();
+  const { data: branding } = await supabase.from("branding").select("business_name").maybeSingle();
+  const studioName = (branding?.business_name || "Nail Studio").replace(/[<>"]/g, "");
+  const fromAddress = `${studioName} <${address}>`;
 
   const now = Date.now();
   let checked = 0;

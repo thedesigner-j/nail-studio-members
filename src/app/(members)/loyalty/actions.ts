@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getBranding } from "@/lib/branding";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 // No SMS provider — the member sends the text themselves (via whatever app
@@ -27,7 +28,8 @@ export async function createReferralInvite(): Promise<
   const credit = settings ? `$${Number(settings.account_creation_credit).toFixed(0)}` : "a credit";
 
   const link = `${process.env.NEXT_PUBLIC_SITE_URL}/join-${token}`;
-  const message = `Nail Studio — your friend wants you to try us! Book your first visit and get ${credit} off: ${link}`;
+  const { name: studioName } = await getBranding();
+  const message = `${studioName} — your friend wants you to try us! Book your first visit and get ${credit} off: ${link}`;
 
   revalidatePath("/loyalty");
   return { error: null, link, message };

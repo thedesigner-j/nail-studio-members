@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
+import { getBranding } from "@/lib/branding";
 import { Geist, Geist_Mono } from "next/font/google";
 import IframeResize from "@/components/iframe-resize";
 import "./globals.css";
@@ -13,10 +15,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Members | Nail Studio",
-  description: "Loyalty, appointments, and referrals for Nail Studio members.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  const { name } = await getBranding();
+  return {
+    title: `Members | ${name}`,
+    description: `Loyalty, appointments, and referrals for ${name} members.`,
+  };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
