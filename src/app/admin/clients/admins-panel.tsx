@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { demoteAdmin } from "./actions";
+import TechToggle from "./tech-toggle";
 import type { AdminAccount } from "@/lib/data";
 
 export default function AdminsPanel({ admins, currentAdminId }: { admins: AdminAccount[]; currentAdminId: string }) {
@@ -11,7 +12,9 @@ export default function AdminsPanel({ admins, currentAdminId }: { admins: AdminA
   return (
     <div className="card">
       <h2 className="font-medium text-neutral-900">Admins</h2>
-      <p className="mt-1 text-sm text-neutral-500">Accounts with full access to this admin panel.</p>
+      <p className="mt-1 text-sm text-neutral-500">
+        Accounts with full access to this admin panel. An admin can also be a tech to get Skill Projects.
+      </p>
 
       <ul className="mt-3 space-y-2">
         {visible.map((admin) => (
@@ -39,26 +42,29 @@ function AdminRow({
   const [pending, startTransition] = useTransition();
 
   return (
-    <li className="flex items-center justify-between rounded-lg border border-neutral-100 px-3 py-2 text-sm">
+    <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-100 px-3 py-2 text-sm">
       <div>
         <p className="font-medium text-neutral-900">{admin.fullName}</p>
         <p className="text-xs text-neutral-400">{admin.email ?? "—"}</p>
       </div>
-      {canRemove && (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => {
-            onRemoved();
-            startTransition(() => {
-              demoteAdmin(admin.id);
-            });
-          }}
-          className="text-sm font-medium text-rose-600 hover:underline"
-        >
-          Remove admin
-        </button>
-      )}
+      <div className="flex items-center gap-4">
+        <TechToggle userId={admin.id} initialIsTech={admin.isTech} />
+        {canRemove && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              onRemoved();
+              startTransition(() => {
+                demoteAdmin(admin.id);
+              });
+            }}
+            className="text-sm font-medium text-rose-600 hover:underline"
+          >
+            Remove admin
+          </button>
+        )}
+      </div>
     </li>
   );
 }

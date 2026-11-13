@@ -15,7 +15,71 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Messages: a single thread per member with the studio, live via Supabase Realtime
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
 - Early Access: admin-posted sales/product/event announcements, members-only, with an unread indicator in the nav
+- **Skill Projects**: practice projects the admin assigns to a nail tech (`/admin/skill-projects`). Each has a reference (a Look Book photo, an uploaded image or an outside link), tutorial links (YouTube plays in the app), a goals checklist, due date and priority. The tech works through them under **My Projects**: they submit photos plus links to videos hosted elsewhere, and the admin approves or sends the work back with feedback. Approved work forms the tech's portfolio. Give someone the tech role from the Clients page; an admin can be a tech too. Photos are kept in a private storage bucket and only shown through short-lived links.
 - Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, cancel, or no-show), booking & deposit settings, loyalty, and a messages inbox to reply to members' threads
+
+## Local development
+
+You can build and test the whole app on your own machine without a hosted Supabase project. Supabase runs locally in Docker, and nothing is sent to supabase.com.
+
+Requires Node.js 20+ and Docker (Docker Desktop on Mac/Windows, running).
+
+**The quick way:** run this from the project folder, every time you want to work on the app:
+
+```bash
+npm run local
+```
+
+It runs `scripts/local.sh`, which:
+
+- checks Node and Docker are ready
+- points `.env.local` at the local database, first moving any existing `.env.local` with real keys to `.env.hosted.backup` (nothing is deleted)
+- installs dependencies when they've changed
+- starts local Supabase, then the app
+
+Press Control+C to stop the app.
+
+**Doing it by hand** (same result):
+
+1. Install dependencies and start local Supabase. This applies every migration in `supabase/migrations/`, then `supabase/seed.sql`:
+
+   ```bash
+   npm install
+   npx supabase start
+   ```
+
+2. Create `.env.local` pointing at it. These are the standard keys every local Supabase install uses: they aren't secrets and only work against your own machine.
+
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+   NEXT_PUBLIC_SITE_URL=http://localhost:3000
+   ```
+
+3. Run the app and open http://localhost:3000:
+
+   ```bash
+   npm run dev
+   ```
+
+Sign in with the seeded admin account, `admin@example.com` / `password123`, or the seeded nail tech, `tech@example.com` / `password123` (for Skill Projects), or sign up a new member. Locally, sign-ups don't need email confirmation.
+
+Useful while developing:
+
+- **Supabase Studio** (browse and edit tables, storage, users): http://localhost:54323
+- **Mailpit** (catches every email local Supabase sends, e.g. password resets): http://localhost:54324
+- **Start the database over** (wipes local data, re-runs all migrations and the seed): `npx supabase db reset`
+- **Stop Supabase** when you're done: `npx supabase stop`
+
+What's different from production locally (set in `supabase/seed.sql`):
+
+- **Booking deposits are off**, so bookings confirm without Stripe.
+- **The hourly reminder job from migration 0004 is switched off**, because it points at a hosted project.
+
+Stripe, Resend and Google Calendar are optional locally. Add their test keys to `.env.local` when you want to work on those features.
+
+Local data is throwaway. Anything that should exist in production (schema changes, the service menu, business hours) belongs in a new file in `supabase/migrations/`, not just in Studio. When you're ready to go live, follow the setup below to create the hosted project and apply the same migrations to it.
 
 ## Setup
 

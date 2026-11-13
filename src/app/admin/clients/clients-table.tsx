@@ -5,6 +5,7 @@ import Image from "next/image";
 import type { AdminClientRow } from "@/lib/data";
 import { formatCurrency, formatDollars, formatShortDate } from "@/lib/format";
 import { promoteToAdmin } from "./actions";
+import TechToggle from "./tech-toggle";
 
 type SortKey = "totalSpentCents" | "totalBookings" | "memberSince" | "creditBalance" | "lastVisitAt";
 
@@ -123,7 +124,13 @@ export default function ClientsTable({ clients }: { clients: AdminClientRow[] })
                   {client.referralsConfirmed}/{client.referralsSent}
                 </td>
                 <td className="px-4 py-3">
-                  <MakeAdminButton clientId={client.id} onPromoted={() => setPromotedIds((prev) => new Set(prev).add(client.id))} />
+                  <div className="flex items-center justify-end gap-4">
+                    <TechToggle userId={client.id} initialIsTech={client.isTech} />
+                    <MakeAdminButton
+                      clientId={client.id}
+                      onPromoted={() => setPromotedIds((prev) => new Set(prev).add(client.id))}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}

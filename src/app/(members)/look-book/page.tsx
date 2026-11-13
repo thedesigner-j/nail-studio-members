@@ -42,6 +42,7 @@ export default async function LookBookPage() {
                   likedByMe: photo.likedByMe,
                 }}
                 collections={collections.map((c) => ({ id: c.id, name: c.name }))}
+                isAdmin={profile.is_admin}
               />
             </div>
           ))}

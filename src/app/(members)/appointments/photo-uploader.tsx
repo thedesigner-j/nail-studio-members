@@ -99,6 +99,10 @@ export default function PhotoUploader({
       />
 
       {error && <p className="w-full text-xs text-red-600">{error}</p>}
+
+      <p className="w-full text-xs text-neutral-400">
+        Photos you add appear in the Look Book. The studio may use Look Book photos as practice inspiration.
+      </p>
     </div>
   );
 }
