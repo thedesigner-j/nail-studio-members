@@ -21,7 +21,24 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 
 You can build and test the whole app on your own machine without a hosted Supabase project. Supabase runs locally in Docker, and nothing is sent to supabase.com.
 
-Requires Node.js and Docker (Docker Desktop on Mac/Windows, running).
+Requires Node.js 20+ and Docker (Docker Desktop on Mac/Windows, running).
+
+**The quick way:** run this from the project folder, every time you want to work on the app:
+
+```bash
+npm run local
+```
+
+It runs `scripts/local.sh`, which:
+
+- checks Node and Docker are ready
+- points `.env.local` at the local database, first moving any existing `.env.local` with real keys to `.env.hosted.backup` (nothing is deleted)
+- installs dependencies when they've changed
+- starts local Supabase, then the app
+
+Press Control+C to stop the app.
+
+**Doing it by hand** (same result):
 
 1. Install dependencies and start local Supabase. This applies every migration in `supabase/migrations/`, then `supabase/seed.sql`:
 
