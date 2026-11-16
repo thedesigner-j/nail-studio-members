@@ -24,6 +24,21 @@ const mid = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 
 const UNLOCK_HOLD_MS = 1200;
 
+// Design size, relative to how it's drawn in Figma for this nail.
+const MIN_SCALE = 0.2;
+const MAX_SCALE = 8;
+const SIZE_STEP = 1.05;
+const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+// The size slider works in powers of two, so halving and doubling feel the
+// same; its ends are rounded so every 0.01 step is a valid value.
+const SLIDER_MIN = -2.32;
+const SLIDER_MAX = 3;
+
+// The magnifier enlarges everything (guide and design) to line things up.
+// Tracing always happens at real size: locking turns it off.
+const ZOOMS = [1, 2, 3] as const;
+type Zoom = (typeof ZOOMS)[number];
+
 export default function Lightbox({
   shape,
   nailMm,
@@ -61,6 +76,7 @@ export default function Lightbox({
   const [mode, setMode] = useState<ArtMode>(hasLine ? "line" : "color");
   const [locked, setLocked] = useState(false);
   const [tip, setTip] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<Zoom>(1);
 
   // A new finger or design starts lined up with the guide again.
   const designKey = design.kind === "figma" ? `${design.colorUrl}|${design.lineUrl}` : design.src;
@@ -69,6 +85,7 @@ export default function Lightbox({
     setShownKey(designKey);
     setT(IDENTITY);
     setMode(hasLine ? "line" : "color");
+    setZoom(1);
   }
 
   // Fill the screen, keep the page underneath from scrolling or zooming.
@@ -122,6 +139,8 @@ export default function Lightbox({
   }, [locked]);
 
   // --- Gestures: one finger moves, two fingers resize and turn ---------------
+  // While magnified, finger movement is divided by the zoom so the design
+  // stays under the finger.
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<{ start: Transform; a: Point; b?: Point } | null>(null);
   const latest = useRef(t);
@@ -148,15 +167,25 @@ export default function Lightbox({
     if (!g0) return;
     const pts = [...pointers.current.values()];
     if (pts.length >= 2 && g0.b) {
-      const s = Math.min(8, Math.max(0.2, g0.start.s * (dist(pts[0], pts[1]) / Math.max(1, dist(g0.a, g0.b)))));
+      const s = clampScale(g0.start.s * (dist(pts[0], pts[1]) / Math.max(1, dist(g0.a, g0.b))));
       const r = g0.start.r + angle(pts[0], pts[1]) - angle(g0.a, g0.b);
       const m0 = mid(g0.a, g0.b);
       const m1 = mid(pts[0], pts[1]);
-      const next = { ...g0.start, s, r, tx: g0.start.tx + m1.x - m0.x, ty: g0.start.ty + m1.y - m0.y };
+      const next = {
+        ...g0.start,
+        s,
+        r,
+        tx: g0.start.tx + (m1.x - m0.x) / zoom,
+        ty: g0.start.ty + (m1.y - m0.y) / zoom,
+      };
       latest.current = next;
       setT(next);
     } else if (pts.length === 1) {
-      const next = { ...g0.start, tx: g0.start.tx + pts[0].x - g0.a.x, ty: g0.start.ty + pts[0].y - g0.a.y };
+      const next = {
+        ...g0.start,
+        tx: g0.start.tx + (pts[0].x - g0.a.x) / zoom,
+        ty: g0.start.ty + (pts[0].y - g0.a.y) / zoom,
+      };
       latest.current = next;
       setT(next);
     }
@@ -170,10 +199,11 @@ export default function Lightbox({
   function onWheel(e: React.WheelEvent) {
     if (locked) return;
     if (e.shiftKey) setT((c) => ({ ...c, r: c.r + e.deltaY * 0.2 }));
-    else setT((c) => ({ ...c, s: Math.min(8, Math.max(0.2, c.s * Math.exp(-e.deltaY * 0.0015))) }));
+    else setT((c) => ({ ...c, s: clampScale(c.s * Math.exp(-e.deltaY * 0.0015)) }));
   }
 
   function lock() {
+    setZoom(1);
     setLocked(true);
     pointers.current.clear();
     gesture.current = null;
@@ -210,6 +240,12 @@ export default function Lightbox({
   const designTransform =
     `translate(${ox + W / 2 + t.tx} ${oy + H / 2 + t.ty}) rotate(${t.r}) ` +
     `scale(${t.s * t.fx} ${t.s * t.fy}) translate(${-W / 2} ${-H / 2}) scale(${k})`;
+  // Magnify around the nail's centre. The clip and guide sit inside this
+  // group, so they scale with it.
+  const cx = ox + W / 2;
+  const cy = oy + H / 2;
+  const viewTransform = zoom === 1 ? undefined : `translate(${cx} ${cy}) scale(${zoom}) translate(${-cx} ${-cy})`;
+  const resize = (factor: number) => setT((c) => ({ ...c, s: clampScale(c.s * factor) }));
 
   let photoBox = null;
   if (design.kind === "photo") {
@@ -252,53 +288,64 @@ export default function Lightbox({
           </filter>
         </defs>
         <rect width="100%" height="100%" fill="#ffffff" />
-        <g clipPath={clip ? "url(#trace-guide-clip)" : undefined}>
-          <g data-testid="trace-design" transform={designTransform} opacity={opacity}>
-            {design.kind === "figma" ? (
-              <NailDesign
-                geometry={g}
-                artUrl={mode === "line" ? design.lineUrl : design.colorUrl}
-                mode={mode}
-                tip={design.tip}
-              />
-            ) : (
-              photoBox && (
-                <image
-                  href={design.src}
-                  x={photoBox.x}
-                  y={photoBox.y}
-                  width={photoBox.w}
-                  height={photoBox.h}
-                  preserveAspectRatio="none"
-                  filter={highContrast ? "url(#trace-high-contrast)" : undefined}
+        <g data-testid="trace-view" transform={viewTransform}>
+          <g clipPath={clip ? "url(#trace-guide-clip)" : undefined}>
+            <g data-testid="trace-design" transform={designTransform} opacity={opacity}>
+              {design.kind === "figma" ? (
+                <NailDesign
+                  geometry={g}
+                  artUrl={mode === "line" ? design.lineUrl : design.colorUrl}
+                  mode={mode}
+                  tip={design.tip}
                 />
-              )
-            )}
+              ) : (
+                photoBox && (
+                  <image
+                    href={design.src}
+                    x={photoBox.x}
+                    y={photoBox.y}
+                    width={photoBox.w}
+                    height={photoBox.h}
+                    preserveAspectRatio="none"
+                    filter={highContrast ? "url(#trace-high-contrast)" : undefined}
+                  />
+                )
+              )}
+            </g>
           </g>
+          {showGuide && (
+            <path
+              data-testid="trace-guide"
+              d={g.mask.d}
+              transform={guideTransform}
+              fill="none"
+              stroke="#000000"
+              strokeOpacity={0.45}
+              strokeWidth={1.25}
+              strokeDasharray="4 3"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
         </g>
-        {showGuide && (
-          <path
-            data-testid="trace-guide"
-            d={g.mask.d}
-            transform={guideTransform}
-            fill="none"
-            stroke="#000000"
-            strokeOpacity={0.45}
-            strokeWidth={1.25}
-            strokeDasharray="4 3"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
       </svg>
 
-      {/* 10 mm bar: hold a ruler to it to check the real-size calibration. */}
-      {!locked && (
+      {/* 10 mm bar: hold a ruler to it to check the real-size calibration.
+          Hidden while magnified, when nothing on screen is real size. */}
+      {!locked && zoom === 1 && (
         <div className="pointer-events-none absolute left-4 top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] flex items-center gap-2">
           <div className="h-2 border-x-2 border-neutral-400" style={{ width: 10 * pxPerMm }}>
             <div className="mt-[3px] h-0.5 bg-neutral-400" />
           </div>
           <span className="text-[11px] text-neutral-400">10 mm</span>
         </div>
+      )}
+      {!locked && zoom > 1 && (
+        <p
+          role="status"
+          className="pointer-events-none absolute left-4 top-[max(4rem,calc(env(safe-area-inset-top)+3.25rem))] max-w-[calc(100%-12rem)] rounded-xl bg-amber-100 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900"
+        >
+          Magnified {zoom}× – not real size. Lock returns to real size.
+        </p>
       )}
 
       {!locked && (
@@ -317,6 +364,23 @@ export default function Lightbox({
             <button type="button" onClick={lock} className="btn-primary btn-sm">
               Lock
             </button>
+          </div>
+
+          <div className="absolute right-4 top-[max(4rem,calc(env(safe-area-inset-top)+3.25rem))] flex rounded-full border border-neutral-200 bg-white/90 p-0.5 text-xs shadow-sm">
+            {ZOOMS.map((z) => (
+              <button
+                key={z}
+                type="button"
+                onClick={() => setZoom(z)}
+                aria-pressed={zoom === z}
+                aria-label={z === 1 ? "Real size" : `Magnify ${z} times`}
+                className={`rounded-full px-2.5 py-1 font-medium ${
+                  zoom === z ? "bg-neutral-900 text-white" : "text-neutral-600"
+                }`}
+              >
+                {z === 1 ? "Real size" : `${z}×`}
+              </button>
+            ))}
           </div>
 
           {(onPrev || onNext) && (
@@ -363,6 +427,32 @@ export default function Lightbox({
               />
               <span className="w-10 text-right text-xs tabular-nums text-neutral-500">{Math.round(opacity * 100)}%</span>
             </label>
+
+            <div className="flex items-center gap-2 text-sm text-neutral-700">
+              <span className="w-[3.25rem] shrink-0">Size</span>
+              <HoldButton label="Smaller design" onStep={() => resize(1 / SIZE_STEP)}>
+                −
+              </HoldButton>
+              <input
+                type="range"
+                aria-label="Design size"
+                min={SLIDER_MIN}
+                max={SLIDER_MAX}
+                step={0.01}
+                value={Math.log2(t.s)}
+                onChange={(e) => {
+                  const s = clampScale(2 ** Number(e.target.value));
+                  setT((c) => ({ ...c, s }));
+                }}
+                className="min-w-0 flex-1 accent-neutral-900"
+              />
+              <HoldButton label="Bigger design" onStep={() => resize(SIZE_STEP)}>
+                +
+              </HoldButton>
+              <span data-testid="design-size" className="w-10 text-right text-xs tabular-nums text-neutral-500">
+                {Math.round(t.s * 100)}%
+              </span>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {design.kind === "figma" ? (
@@ -418,6 +508,56 @@ export default function Lightbox({
 
       {locked && <LockLayer onUnlock={() => setLocked(false)} tip={tip} />}
     </div>
+  );
+}
+
+// Steps once on press, then keeps stepping while held.
+function HoldButton({
+  label,
+  onStep,
+  children,
+}: {
+  label: string;
+  onStep: () => void;
+  children: React.ReactNode;
+}) {
+  const delay = useRef<number | null>(null);
+  const repeat = useRef<number | null>(null);
+  const stop = () => {
+    if (delay.current) window.clearTimeout(delay.current);
+    if (repeat.current) window.clearInterval(repeat.current);
+    delay.current = null;
+    repeat.current = null;
+  };
+  useEffect(() => stop, []);
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="btn-secondary btn-sm w-9 shrink-0 px-0 text-base"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        stop();
+        onStep();
+        delay.current = window.setTimeout(() => {
+          repeat.current = window.setInterval(onStep, 80);
+        }, 350);
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onStep();
+        }
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
