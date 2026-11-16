@@ -2,11 +2,14 @@ import Link from "next/link";
 import { getTraceAdminOverview, getTraceShapes } from "@/lib/trace-data";
 import NailSvg from "@/components/trace/nail-svg";
 import SyncPanel from "./sync-panel";
+import ImportPanel from "./import-panel";
 import HideToggle from "./hide-toggle";
 
-// The sync's server actions are called from this page; each step is short,
-// but give them room on a slow connection to Figma.
+// The import's and sync's server actions are called from this page; each
+// step is short, but give them room on a slow connection.
 export const maxDuration = 60;
+
+const PLUGIN_ZIP = "/downloads/nail-studio-trace-export.zip";
 
 function formatWhen(iso: string | null | undefined) {
   if (!iso) return "Never";
@@ -24,7 +27,7 @@ export default async function AdminTracePage() {
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900">Trace</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Nail designs for the tracing lightbox, pulled from your Figma file. Techs and admins find them under{" "}
+          Nail designs for the tracing lightbox, from your Figma file. Techs and admins find them under{" "}
           <Link href="/trace" className="underline">
             Trace
           </Link>{" "}
@@ -42,15 +45,14 @@ export default async function AdminTracePage() {
       <section className="card space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-medium text-neutral-900">Figma</h2>
+            <h2 className="font-medium text-neutral-900">Import from Figma</h2>
             <p className="mt-0.5 text-sm text-neutral-500">
-              {figmaConfigured ? (
+              {sync?.file_name ? (
                 <>
-                  Connected to {sync?.file_name ? <strong>{sync.file_name}</strong> : "your file"}{" "}
-                  <span className="text-neutral-400">({fileKey})</span>
+                  Last imported from <strong>{sync.file_name}</strong>.
                 </>
               ) : (
-                "Not connected yet."
+                "Bring your designs in from your Figma file in three steps."
               )}
             </p>
           </div>
@@ -64,29 +66,67 @@ export default async function AdminTracePage() {
               <dd className="font-semibold text-neutral-900">{overview.shapeCount}</dd>
             </div>
             <div>
-              <dt className="text-xs text-neutral-400">Last sync</dt>
+              <dt className="text-xs text-neutral-400">Last update</dt>
               <dd className="font-semibold text-neutral-900">{formatWhen(sync?.last_synced_at)}</dd>
             </div>
           </dl>
         </div>
 
         {sync?.last_error && (
-          <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700">Last sync failed: {sync.last_error}</p>
+          <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700">Last attempt failed: {sync.last_error}</p>
         )}
 
-        {figmaConfigured ? (
-          <SyncPanel configured={figmaConfigured && overview.tablesReady} hasSynced={!!sync?.last_synced_at} />
-        ) : (
-          <SetupSteps />
-        )}
-
-        <p className="text-xs text-neutral-500">
-          The sync copies every set from pages named &ldquo;Sets - &hellip;&rdquo; (their Art Masters and Color Ref) and
-          the nail shapes from the &ldquo;Nail&rdquo; component. If nothing changed in Figma it stops right away. Figma
-          limits how often a file can be read: files on Figma&apos;s free plan can only be synced a few times a month,
-          so keep the file in a paid team if you sync often.
-        </p>
+        <ol className="space-y-4 text-sm text-neutral-700">
+          <li className="flex gap-3">
+            <Step n={1} />
+            <div className="space-y-2">
+              <p>
+                <strong className="text-neutral-900">Add the export tool to Figma</strong> (one time only). It can only
+                read the file you run it in.
+              </p>
+              <a href={PLUGIN_ZIP} download className="btn-secondary btn-sm inline-flex">
+                Download the Figma plugin
+              </a>
+              <p className="text-xs text-neutral-500">
+                Open the downloaded file so it unzips into a folder. In the <strong>Figma desktop app</strong>, open your
+                nail file, click the Figma menu (top left) → <strong>Plugins</strong> → <strong>Development</strong> →{" "}
+                <strong>Import plugin from manifest…</strong>, and choose <code>manifest.json</code> inside that folder.
+              </p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <Step n={2} />
+            <p>
+              <strong className="text-neutral-900">Export from Figma.</strong> In your nail file: Figma menu →{" "}
+              <strong>Plugins</strong> → <strong>Development</strong> → <strong>Nail Studio – Trace Export</strong>, then
+              click <strong>Export</strong>. It saves a file named like <code>nail-designs-2026-11-16.json</code> to your
+              Downloads folder. Do this again whenever you add or change designs.
+            </p>
+          </li>
+          <li className="flex gap-3">
+            <Step n={3} />
+            <div className="w-full space-y-2">
+              <p>
+                <strong className="text-neutral-900">Import it here.</strong> Only designs that changed are replaced.
+              </p>
+              <ImportPanel ready={overview.tablesReady} />
+            </div>
+          </li>
+        </ol>
       </section>
+
+      {figmaConfigured && (
+        <section className="card space-y-3">
+          <div>
+            <h2 className="font-medium text-neutral-900">Sync with a Figma token</h2>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Optional: a token is set ({fileKey}), so the app can also read the file straight from Figma. Figma limits
+              how often a file can be read this way.
+            </p>
+          </div>
+          <SyncPanel configured={overview.tablesReady} hasSynced={!!sync?.last_synced_at} />
+        </section>
+      )}
 
       {sets.length > 0 &&
         collections.map((collection) => (
@@ -128,27 +168,10 @@ export default async function AdminTracePage() {
   );
 }
 
-function SetupSteps() {
+function Step({ n }: { n: number }) {
   return (
-    <div className="space-y-3 rounded-xl bg-neutral-50 p-4 text-sm text-neutral-700">
-      <p className="font-medium text-neutral-900">Connect Figma (one time)</p>
-      <ol className="list-decimal space-y-2 pl-5">
-        <li>
-          In Figma, click your profile picture (top left), then <strong>Settings</strong>, then the{" "}
-          <strong>Security</strong> tab.
-        </li>
-        <li>
-          Under <strong>Personal access tokens</strong>, click <strong>Generate new token</strong>. Name it
-          &ldquo;Nail app&rdquo;, set <strong>File content</strong> to <strong>Read-only</strong>, and create it. Copy
-          the token right away; Figma only shows it once.
-        </li>
-        <li>
-          In Vercel, open the project&apos;s <strong>Settings</strong> → <strong>Environment Variables</strong> and
-          add <code>FIGMA_ACCESS_TOKEN</code> (the token) and <code>FIGMA_FILE_KEY</code> (the part of the Figma file
-          link after <code>/design/</code>, before the next <code>/</code>).
-        </li>
-        <li>Redeploy, then come back here and click Sync from Figma.</li>
-      </ol>
-    </div>
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">
+      {n}
+    </span>
   );
 }

@@ -1,0 +1,110 @@
+<style>
+  body {
+    margin: 0;
+    padding: 16px;
+    font: 13px/1.45 Inter, system-ui, -apple-system, sans-serif;
+    color: var(--figma-color-text, #1e1e1e);
+    background: var(--figma-color-bg, #fff);
+  }
+  h1 {
+    font-size: 14px;
+    margin: 0 0 6px;
+  }
+  p {
+    margin: 0 0 12px;
+    color: var(--figma-color-text-secondary, #666);
+  }
+  button {
+    width: 100%;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--figma-color-bg-brand, #0d99ff);
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .bar {
+    height: 6px;
+    margin: 14px 0 6px;
+    border-radius: 3px;
+    background: var(--figma-color-bg-secondary, #eee);
+    overflow: hidden;
+  }
+  .bar div {
+    height: 100%;
+    width: 0;
+    background: var(--figma-color-bg-brand, #0d99ff);
+    transition: width 0.2s;
+  }
+  #status {
+    min-height: 2.9em;
+    color: var(--figma-color-text, #1e1e1e);
+  }
+  .error {
+    color: var(--figma-color-text-danger, #d00);
+  }
+  a {
+    color: var(--figma-color-text-brand, #0d99ff);
+  }
+</style>
+
+<h1>Export nail designs</h1>
+<p>Saves this file's nail sets and shapes to one file. Then upload it in the app: Admin → Trace → Import from Figma.</p>
+<button id="go">Export</button>
+<div class="bar"><div id="fill"></div></div>
+<div id="status"></div>
+<a id="again" hidden>Save the file again</a>
+
+<script>
+  var go = document.getElementById("go");
+  var fill = document.getElementById("fill");
+  var status = document.getElementById("status");
+  var again = document.getElementById("again");
+
+  go.onclick = function () {
+    go.disabled = true;
+    again.hidden = true;
+    status.className = "";
+    status.textContent = "Starting...";
+    fill.style.width = "2%";
+    parent.postMessage({ pluginMessage: { type: "export" } }, "*");
+  };
+
+  window.onmessage = function (event) {
+    var msg = event.data && event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === "progress") {
+      status.textContent = msg.text;
+      if (msg.total) fill.style.width = Math.max(2, Math.round((msg.done / msg.total) * 100)) + "%";
+    }
+
+    if (msg.type === "error") {
+      go.disabled = false;
+      status.className = "error";
+      status.textContent = msg.text;
+      fill.style.width = "0";
+    }
+
+    if (msg.type === "done") {
+      var day = new Date().toISOString().slice(0, 10);
+      var url = URL.createObjectURL(new Blob([msg.json], { type: "application/json" }));
+      again.href = url;
+      again.download = "nail-designs-" + day + ".json";
+      again.hidden = false;
+      again.click();
+      fill.style.width = "100%";
+      go.disabled = false;
+      var s = msg.summary;
+      status.textContent =
+        "Done: " + s.sets + " sets, " + s.designs + " designs, " + s.shapes + " nail shapes. " +
+        "The file nail-designs-" + day + ".json is in your Downloads folder.";
+    }
+  };
+</script>
