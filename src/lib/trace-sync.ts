@@ -1,298 +1,33 @@
 import { createHash } from "node:crypto";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { downloadExport, FigmaError, figmaConfig, figmaGet, type FigmaNode, type FigmaPaint } from "@/lib/figma";
+import { downloadExport, FigmaError, figmaConfig, figmaGet, type FigmaNode } from "@/lib/figma";
 import {
-  FINGERS,
-  PT_TO_MM,
-  SHAPES,
-  TIP_STYLES,
-  TRACE_BUCKET,
-  isFinger,
-  type Finger,
-  type FingerInfo,
-  type PaletteColor,
-  type PathPiece,
-  type ShapeGeometry,
-  type ShapeSizes,
-  type TipStyle,
-} from "@/lib/trace";
+  buildPlan,
+  findStructure,
+  frameIdsFor,
+  geometryIdsFor,
+  type PlanSet,
+  type PlanShape,
+  type TracePlan,
+} from "@/lib/trace-parse";
+import { FINGERS, SHAPES, TIP_STYLES, TRACE_BUCKET, isFinger, type ArtMode } from "@/lib/trace";
 
-// Reads the studio's Figma file and copies its nail sets into the app.
+// Copies the studio's Figma nail sets into the app, two ways:
 //
-// What it expects in Figma (the layout the "Sets Book" file uses):
-//   - Pages named "Sets - <Collection>", holding one section per set named
-//     "<CODE> · <Name>" (e.g. "X01 · Candy Cane Lane"). Each section has an
-//     "Art Masters" frame with components "Art/<CODE>/<L|R>-<Finger>" (color)
-//     and "… · Line" (tracing lines), plus a "<CODE> · Color Ref" frame.
-//   - A component set named "Nail" with variants
-//     "Shape=…, Size=S|M|L, Finger=…, Mode=Color|Line" drawn at real size.
+//   - Import (no token): the Figma plugin in figma-plugin/ saves the file's
+//     designs to one .json file; Admin > Trace reads it in the browser,
+//     builds the plan (src/lib/trace-parse.ts) and sends it here in small
+//     pieces: applyPlan, then importSvgs in batches.
+//   - Sync (optional, needs FIGMA_ACCESS_TOKEN): the server reads the same
+//     things through Figma's API: startSync, exportBatch, downloadPending.
 //
-// A sync runs in steps so each server call stays short: start (read the
-// structure), export (ask Figma for SVG links in batches), download (copy the
-// SVGs into storage in small batches), finish.
-
-const SET_PAGE = /^sets?\s*[-–—·:|]\s*(.+)$/i;
-const SET_SECTION = /^([A-Za-z]+\d+)\s*[·•|:\-–—]\s*(.+)$/;
-const ART_NAME = /^Art\/[^/]+\/([LR])-(Thumb|Index|Middle|Ring|Pinky)(?:\s*[·•|\-–—]?\s*(Line))?$/i;
-const INSTANCE_FINGER = /^([LR])\s+(Thumb|Index|Middle|Ring|Pinky)\b/i;
-const FINGER_MENTION = /\b([LR])\s+(Thumb|Index|Middle|Ring|Pinky)\b/gi;
-const VARIANT = /Shape=([^,]+),\s*Size=([^,]+),\s*Finger=([^,]+),\s*Mode=([^,]+)/i;
+// Both end with finishSync. A design file only changes in storage (and gets
+// a new name, so nothing serves a stale copy) when its contents changed.
 
 export const EXPORT_BATCH_SIZE = 400;
 const DOWNLOAD_BATCH_SIZE = 60;
-const DOWNLOAD_CONCURRENCY = 10;
-
-type PlannedSet = {
-  code: string;
-  name: string;
-  collection: string;
-  sortOrder: number;
-  figmaNodeId: string;
-  artFrameId: string;
-  colorRefId: string | null;
-};
-
-type VariantInfo = { id: string; shape: string; size: string; finger: string; mode: string; w: number; h: number };
-
-// === Small helpers ===========================================================
-
-const round = (n: number) => Math.round(n * 1000) / 1000;
-const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-
-function toFinger(side: string, kind: string): Finger | null {
-  const finger = `${side.toUpperCase()}-${titleCase(kind)}`;
-  return isFinger(finger) ? finger : null;
-}
-
-function text(node: FigmaNode) {
-  return (node.characters ?? node.name).trim();
-}
-
-function hexFromFills(fills: FigmaPaint[] | undefined) {
-  const solid = (fills ?? []).find((f) => f.type === "SOLID" && f.visible !== false && f.color);
-  if (!solid?.color) return undefined;
-  const { r, g, b } = solid.color;
-  return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
-}
-
-function box(node: FigmaNode) {
-  return node.absoluteBoundingBox ?? { x: 0, y: 0, width: 0, height: 0 };
-}
-
-function piece(node: FigmaNode, parent: FigmaNode, kind: "fill" | "stroke"): PathPiece | null {
-  const geometry = kind === "fill" ? node.fillGeometry : node.strokeGeometry;
-  const d = (geometry ?? []).map((g) => g.path).join(" ").trim();
-  if (!d) return null;
-  return { d, x: round(box(node).x - box(parent).x), y: round(box(node).y - box(parent).y) };
-}
-
-function compareCodes(a: string, b: string) {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-}
-
-// === Reading the file's structure ============================================
-
-export function findStructure(document: FigmaNode) {
-  const byCollection: { collection: string; sets: Omit<PlannedSet, "sortOrder">[] }[] = [];
-  const variants: VariantInfo[] = [];
-
-  for (const page of document.children ?? []) {
-    for (const child of page.children ?? []) {
-      if (child.type === "COMPONENT_SET" && child.name.trim().toLowerCase() === "nail") {
-        for (const v of child.children ?? []) {
-          const m = v.name.match(VARIANT);
-          if (!m) continue;
-          const b = box(v);
-          variants.push({
-            id: v.id,
-            shape: m[1].trim(),
-            size: m[2].trim().toUpperCase(),
-            finger: titleCase(m[3].trim()),
-            mode: m[4].trim().toLowerCase(),
-            w: b.width,
-            h: b.height,
-          });
-        }
-      }
-    }
-
-    const pageMatch = page.name.trim().match(SET_PAGE);
-    if (!pageMatch) continue;
-    const collection = pageMatch[1].trim();
-    const sets: Omit<PlannedSet, "sortOrder">[] = [];
-
-    for (const section of page.children ?? []) {
-      const sectionMatch = section.name.trim().match(SET_SECTION);
-      if (!sectionMatch) continue;
-      const frames = section.children ?? [];
-      const artFrame = frames.find((f) => /^art masters$/i.test(f.name.trim()));
-      if (!artFrame) continue;
-      const colorRef = frames.find((f) => /colou?r ref$/i.test(f.name.trim()));
-      sets.push({
-        code: sectionMatch[1].toUpperCase(),
-        name: sectionMatch[2].trim(),
-        collection,
-        figmaNodeId: section.id,
-        artFrameId: artFrame.id,
-        colorRefId: colorRef?.id ?? null,
-      });
-    }
-
-    if (sets.length > 0) byCollection.push({ collection, sets });
-  }
-
-  const sets: PlannedSet[] = [];
-  byCollection.forEach(({ sets: group }, collectionIndex) => {
-    group
-      .sort((a, b) => compareCodes(a.code, b.code))
-      .forEach((set, i) => sets.push({ ...set, sortOrder: collectionIndex * 1000 + i }));
-  });
-
-  // Each shape's real sizes, and the variants whose geometry we read
-  // (M · Middle, in both modes).
-  const sizes: Record<string, ShapeSizes> = {};
-  const reference: Record<string, { color?: string; line?: string }> = {};
-  for (const v of variants) {
-    if (v.mode === "color") {
-      const shape = (sizes[v.shape] ??= {});
-      const size = (shape[v.size as keyof ShapeSizes] ??= {});
-      (size as Record<string, [number, number]>)[v.finger] = [
-        Math.round(v.w * PT_TO_MM * 10) / 10,
-        Math.round(v.h * PT_TO_MM * 10) / 10,
-      ];
-    }
-    const ref = (reference[v.shape] ??= {});
-    const isPreferred = v.size === "M" && v.finger === "Middle";
-    if (v.mode === "color" && (isPreferred || !ref.color)) ref.color = v.id;
-    if (v.mode === "line" && (isPreferred || !ref.line)) ref.line = v.id;
-  }
-
-  return { sets, sizes, reference };
-}
-
-export function parseArtMasters(frame: FigmaNode) {
-  const art: Partial<Record<Finger, { color?: string; line?: string }>> = {};
-  for (const node of frame.children ?? []) {
-    if (node.type !== "COMPONENT") continue;
-    const m = node.name.trim().match(ART_NAME);
-    if (!m) continue;
-    const finger = toFinger(m[1], m[2]);
-    if (!finger) continue;
-    const entry = (art[finger] ??= {});
-    if (m[3]) entry.line = node.id;
-    else entry.color = node.id;
-  }
-  return art;
-}
-
-export function parseColorRef(frame: FigmaNode | undefined) {
-  const fingers: Partial<Record<Finger, FingerInfo>> = {};
-  const palette: PaletteColor[] = [];
-  let description: string | null = null;
-  let heroFinger: Finger | null = null;
-  if (!frame) return { fingers, palette, description, heroFinger };
-
-  const kids = frame.children ?? [];
-  const nails: { finger: Finger; x: number; bottom: number }[] = [];
-
-  for (const node of kids) {
-    if (node.type !== "INSTANCE") continue;
-    const m = node.name.trim().match(INSTANCE_FINGER);
-    const finger = m ? toFinger(m[1], m[2]) : null;
-    if (!finger) continue;
-    const info: FingerInfo = {};
-    const tipNode = (node.children ?? []).find((c) => /^tip\//i.test(c.name.trim()) && c.visible !== false);
-    const style = tipNode?.name.trim().split("/")[1]?.trim();
-    const tip = TIP_STYLES.find((t) => t.toLowerCase() === style?.toLowerCase());
-    if (tip && tipNode) {
-      info.tip = tip;
-      info.tipColor = hexFromFills(tipNode.fills) ?? "#ffffff";
-    }
-    fingers[finger] = info;
-    const b = box(node);
-    nails.push({ finger, x: b.x + b.width / 2, bottom: b.y + b.height });
-  }
-
-  const paletteIndex = kids.findIndex((k) => k.type === "TEXT" && /^palette$/i.test(text(k)));
-  if (paletteIndex > 0) {
-    const before = kids[paletteIndex - 1];
-    if (before.type === "TEXT") description = text(before) || null;
-  }
-
-  let inPalette = false;
-  let inDesigns = false;
-  for (let i = 0; i < kids.length; i++) {
-    const node = kids[i];
-    if (node.type === "TEXT" && /^palette$/i.test(text(node))) {
-      inPalette = true;
-      continue;
-    }
-    if (node.type === "TEXT" && /^designs in this set$/i.test(text(node))) {
-      inPalette = false;
-      inDesigns = true;
-      continue;
-    }
-    if (inPalette && node.type === "ELLIPSE") {
-      const hex = hexFromFills(node.fills);
-      const label = kids[i + 1]?.type === "TEXT" ? text(kids[i + 1]) : "";
-      if (hex) palette.push({ name: label || hex, hex });
-      continue;
-    }
-    if (inDesigns) {
-      if (node.type !== "TEXT") {
-        inDesigns = false;
-        continue;
-      }
-      const line = text(node);
-      const split = line.match(/^(.+?)\s+[—–-]\s+(.+)$/);
-      if (!split) continue;
-      for (const mention of split[2].matchAll(FINGER_MENTION)) {
-        const finger = toFinger(mention[1], mention[2]);
-        if (finger) (fingers[finger] ??= {}).design = split[1].trim();
-      }
-    }
-  }
-
-  // "★ Hero · in Singles" sits under one nail: pick the nearest one above it.
-  const hero = kids.find((k) => k.type === "TEXT" && /hero/i.test(text(k)));
-  if (hero && nails.length) {
-    const hb = box(hero);
-    const heroX = hb.x + hb.width / 2;
-    const above = nails.filter((n) => n.bottom <= hb.y + 2);
-    const pool = above.length ? above : nails;
-    pool.sort((a, b) => Math.abs(a.x - heroX) + Math.abs(a.bottom - hb.y) - (Math.abs(b.x - heroX) + Math.abs(b.bottom - hb.y)));
-    heroFinger = pool[0].finger;
-  }
-
-  return { fingers, palette, description, heroFinger };
-}
-
-export function parseShapeGeometry(colorVariant: FigmaNode, lineVariant: FigmaNode | undefined): ShapeGeometry | null {
-  const kids = colorVariant.children ?? [];
-  const maskNode = kids.find((c) => c.isMask) ?? kids.find((c) => c.name.trim() === "Mask");
-  const mask = maskNode ? piece(maskNode, colorVariant, "fill") : null;
-  if (!mask) return null;
-
-  const vb = box(colorVariant);
-  const artNode = kids.find((c) => c.name.trim() === "Art");
-  const ab = artNode ? box(artNode) : null;
-  const art = ab
-    ? { x: round(ab.x - vb.x), y: round(ab.y - vb.y), w: round(ab.width), h: round(ab.height) }
-    : { x: 0, y: round(vb.height - vb.width * 2), w: round(vb.width), h: round(vb.width * 2) };
-
-  const tips: ShapeGeometry["tips"] = {};
-  for (const style of TIP_STYLES) {
-    const fillNode = kids.find((c) => c.name.trim().toLowerCase() === `tip/${style.toLowerCase()}`);
-    const lineNode = lineVariant?.children?.find((c) => c.name.trim().toLowerCase() === `tip/${style.toLowerCase()}`);
-    const fill = fillNode ? piece(fillNode, colorVariant, "fill") : null;
-    const line = lineNode && lineVariant ? piece(lineNode, lineVariant, "stroke") : null;
-    if (fill || line) tips[style as TipStyle] = { ...(fill ? { fill } : {}), ...(line ? { line } : {}) };
-  }
-
-  return { width: round(vb.width), height: round(vb.height), mask, art, tips };
-}
-
-// === Steps ===================================================================
+const CONCURRENCY = 10;
+export const IMPORT_BATCH_SIZE = 40;
 
 type Meta = { file?: { version?: string; name?: string }; version?: string; name?: string };
 type FileResponse = { name?: string; version?: string; document: FigmaNode };
@@ -303,6 +38,265 @@ export type StartResult =
   | { status: "up_to_date" }
   | { status: "ready"; version: string; fileName: string; exportIds: string[]; sets: number; shapes: number };
 
+// === Saving a plan ============================================================
+
+// Saves shapes and sets, removes sets no longer in Figma, and points each
+// finger's art row at its Figma component. Returns the art the plan expects.
+export async function applyPlan(plan: TracePlan) {
+  const supabase = createServiceRoleClient();
+  const now = new Date().toISOString();
+
+  if (plan.shapes.length > 0) {
+    const { error } = await supabase.from("trace_shapes").upsert(
+      plan.shapes.map((s) => ({
+        shape: s.shape,
+        sort_order: s.sortOrder,
+        geometry: s.geometry,
+        sizes: s.sizes,
+        synced_at: now,
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+
+  const { data: savedSets, error: setsError } = await supabase
+    .from("trace_sets")
+    .upsert(
+      plan.sets.map((s) => ({
+        code: s.code,
+        name: s.name,
+        collection: s.collection,
+        description: s.description,
+        palette: s.palette,
+        fingers: s.fingers,
+        hero_finger: s.heroFinger,
+        sort_order: s.sortOrder,
+        figma_node_id: s.figmaNodeId,
+        synced_at: now,
+      })),
+      { onConflict: "code" },
+    )
+    .select("id, code");
+  if (setsError) throw new Error(setsError.message);
+  const idByCode = new Map((savedSets ?? []).map((s) => [s.code as string, s.id as string]));
+
+  const { data: allSets } = await supabase.from("trace_sets").select("id, code");
+  const staleIds = (allSets ?? []).filter((s) => !idByCode.has(s.code)).map((s) => s.id as string);
+  if (staleIds.length > 0) {
+    const { data: staleArt } = await supabase.from("trace_art").select("storage_path").in("set_id", staleIds);
+    const stalePaths = (staleArt ?? []).map((a) => a.storage_path).filter((p): p is string => !!p);
+    if (stalePaths.length) await supabase.storage.from(TRACE_BUCKET).remove(stalePaths);
+    await supabase.from("trace_sets").delete().in("id", staleIds);
+  }
+
+  const artRows = plan.sets.flatMap((set) =>
+    FINGERS.flatMap((finger) =>
+      (["color", "line"] as const).map((mode) => ({
+        set_id: idByCode.get(set.code)!,
+        finger,
+        mode,
+        figma_node_id: set.art[finger]?.[mode] ?? null,
+        pending_url: null,
+      })),
+    ),
+  );
+  const { error: artError } = await supabase.from("trace_art").upsert(artRows, { onConflict: "set_id,finger,mode" });
+  if (artError) throw new Error(artError.message);
+
+  // Fingers with no art component in Figma: clear any old file.
+  const { data: missing } = await supabase
+    .from("trace_art")
+    .select("id, storage_path")
+    .is("figma_node_id", null)
+    .or("storage_path.not.is.null,content_hash.not.is.null");
+  await clearArt(missing ?? []);
+
+  return { artRows, sets: plan.sets.length, shapes: plan.shapes.length };
+}
+
+async function clearArt(rows: { id: string; storage_path: string | null }[]) {
+  if (rows.length === 0) return;
+  const supabase = createServiceRoleClient();
+  const paths = rows.map((r) => r.storage_path).filter((p): p is string => !!p);
+  if (paths.length) await supabase.storage.from(TRACE_BUCKET).remove(paths);
+  await supabase
+    .from("trace_art")
+    .update({ storage_path: null, content_hash: null, pending_url: null, updated_at: new Date().toISOString() })
+    .in(
+      "id",
+      rows.map((r) => r.id),
+    );
+}
+
+function looksSafe(svg: string) {
+  return /<svg[\s>]/i.test(svg) && !/<script|\son[a-z]+\s*=|javascript:/i.test(svg);
+}
+
+type ArtRow = { id: string; finger: string; mode: string; storage_path: string | null; content_hash: string | null };
+
+// Store one SVG for an art row. Returns whether the stored file changed.
+async function storeSvg(row: ArtRow, code: string, svg: string): Promise<"changed" | "same" | "failed"> {
+  const supabase = createServiceRoleClient();
+  if (!looksSafe(svg) || svg.length > 900_000) {
+    await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
+    return "failed";
+  }
+  const hash = createHash("sha256").update(svg).digest("hex");
+  if (hash === row.content_hash && row.storage_path) {
+    await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
+    return "same";
+  }
+  const path = `art/${code}/${row.finger}-${row.mode}-${hash.slice(0, 12)}.svg`;
+  const { error } = await supabase.storage
+    .from(TRACE_BUCKET)
+    .upload(path, new Blob([svg], { type: "image/svg+xml" }), { contentType: "image/svg+xml", upsert: true });
+  if (error) {
+    await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
+    return "failed";
+  }
+  await supabase
+    .from("trace_art")
+    .update({ storage_path: path, content_hash: hash, pending_url: null, updated_at: new Date().toISOString() })
+    .eq("id", row.id);
+  if (row.storage_path && row.storage_path !== path) {
+    await supabase.storage.from(TRACE_BUCKET).remove([row.storage_path]);
+  }
+  return "changed";
+}
+
+async function inParallel<T>(items: T[], work: (item: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(
+    Array.from({ length: CONCURRENCY }, async () => {
+      for (let item = queue.shift(); item !== undefined; item = queue.shift()) await work(item);
+    }),
+  );
+}
+
+// === Import (from the plugin's file) =========================================
+
+export class TraceImportError extends Error {}
+
+export type ImportItem = { code: string; finger: string; mode: ArtMode; svg: string | null };
+
+// The plan arrives from the admin's browser, so check its shape before saving.
+export function validatePlan(input: unknown): TracePlan {
+  const bad = (why: string): never => {
+    throw new TraceImportError(
+      `That file doesn't look like a Trace export (${why}). Export it again from the Figma plugin.`,
+    );
+  };
+  const plan = input as TracePlan;
+  if (!plan || !Array.isArray(plan.sets) || !Array.isArray(plan.shapes)) bad("missing sets");
+  if (plan.sets.length === 0) bad("no sets");
+  if (plan.sets.length > 1000 || plan.shapes.length > SHAPES.length) bad("too many items");
+
+  const str = (v: unknown, max = 500) => typeof v === "string" && v.length <= max;
+  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  const piece = (p: unknown) => {
+    const x = p as { d: unknown; x: unknown; y: unknown };
+    return !!x && str(x.d, 50_000) && num(x.x) && num(x.y);
+  };
+
+  const sets: PlanSet[] = plan.sets.map((s) => {
+    if (!str(s.code, 20) || !/^[A-Z]+\d+$/.test(s.code)) bad("set code");
+    if (!str(s.name, 200) || !str(s.collection, 100)) bad(`set ${s.code}`);
+    if (s.description !== null && !str(s.description, 2000)) bad(`set ${s.code} description`);
+    if (!isFinger(s.heroFinger)) bad(`set ${s.code} hero`);
+    const palette = Array.isArray(s.palette)
+      ? s.palette.filter((p) => str(p?.name, 100) && /^#[0-9a-f]{6}$/i.test(p?.hex ?? "")).slice(0, 20)
+      : [];
+    const fingers: PlanSet["fingers"] = {};
+    const art: PlanSet["art"] = {};
+    for (const f of FINGERS) {
+      const info = s.fingers?.[f];
+      if (info) {
+        fingers[f] = {
+          ...(info.tip && (TIP_STYLES as readonly string[]).includes(info.tip) ? { tip: info.tip } : {}),
+          ...(info.tipColor && /^#[0-9a-f]{6}$/i.test(info.tipColor) ? { tipColor: info.tipColor } : {}),
+          ...(str(info.design, 200) ? { design: info.design } : {}),
+        };
+      }
+      const a = s.art?.[f];
+      if (a) art[f] = { ...(str(a.color, 100) ? { color: a.color } : {}), ...(str(a.line, 100) ? { line: a.line } : {}) };
+    }
+    return {
+      code: s.code,
+      name: s.name,
+      collection: s.collection,
+      description: s.description,
+      palette,
+      fingers,
+      heroFinger: s.heroFinger,
+      sortOrder: num(s.sortOrder) ? s.sortOrder : 0,
+      figmaNodeId: str(s.figmaNodeId, 100) ? s.figmaNodeId : "",
+      art,
+    };
+  });
+
+  const shapes: PlanShape[] = plan.shapes.map((s) => {
+    if (!(SHAPES as readonly string[]).includes(s.shape)) bad("shape name");
+    const g = s.geometry;
+    if (!g || !num(g.width) || !num(g.height) || !piece(g.mask)) bad(`${s.shape} outline`);
+    if (!g.art || ![g.art.x, g.art.y, g.art.w, g.art.h].every(num)) bad(`${s.shape} art box`);
+    const tips: PlanShape["geometry"]["tips"] = {};
+    for (const style of TIP_STYLES) {
+      const t = g.tips?.[style];
+      if (!t) continue;
+      tips[style] = { ...(piece(t.fill) ? { fill: t.fill } : {}), ...(piece(t.line) ? { line: t.line } : {}) };
+    }
+    return {
+      shape: s.shape,
+      sortOrder: num(s.sortOrder) ? s.sortOrder : 0,
+      geometry: { width: g.width, height: g.height, mask: g.mask, art: g.art, tips },
+      sizes: s.sizes && typeof s.sizes === "object" ? s.sizes : {},
+    };
+  });
+
+  return { sets, shapes };
+}
+
+export async function importSvgs(items: ImportItem[]) {
+  const supabase = createServiceRoleClient();
+  const valid = items
+    .slice(0, IMPORT_BATCH_SIZE)
+    .filter((i) => typeof i.code === "string" && isFinger(i.finger) && (i.mode === "color" || i.mode === "line"));
+  const codes = [...new Set(valid.map((i) => i.code))];
+  if (codes.length === 0) return { changed: 0, failed: 0 };
+
+  const { data: rows } = await supabase
+    .from("trace_art")
+    .select("id, finger, mode, storage_path, content_hash, trace_sets!inner(code)")
+    .in("trace_sets.code", codes);
+  const find = (i: ImportItem) =>
+    (rows ?? []).find(
+      (r) => (r.trace_sets as unknown as { code: string }).code === i.code && r.finger === i.finger && r.mode === i.mode,
+    );
+
+  let changed = 0;
+  let failed = 0;
+  const blank: ArtRow[] = [];
+  await inParallel(valid, async (item) => {
+    const row = find(item);
+    if (!row) {
+      failed++;
+      return;
+    }
+    if (!item.svg) {
+      blank.push(row);
+      return;
+    }
+    const result = await storeSvg(row, item.code, item.svg);
+    if (result === "changed") changed++;
+    if (result === "failed") failed++;
+  });
+  await clearArt(blank.filter((r) => r.storage_path || r.content_hash));
+
+  return { changed, failed };
+}
+
+// === Sync (through Figma's API, with a token) ================================
+
 async function currentSyncRow() {
   const { data } = await createServiceRoleClient().from("trace_sync").select("file_version").maybeSingle();
   return data;
@@ -311,7 +305,6 @@ async function currentSyncRow() {
 export async function startSync(force: boolean): Promise<StartResult> {
   const { fileKey } = figmaConfig();
   const key = encodeURIComponent(fileKey);
-  const supabase = createServiceRoleClient();
 
   // 1. Has the file changed since the last sync? (A light call.)
   let version = "";
@@ -334,121 +327,34 @@ export async function startSync(force: boolean): Promise<StartResult> {
   const file = await figmaGet<FileResponse>(`/v1/files/${key}?depth=3`);
   version = file.version ?? version;
   fileName = file.name ?? fileName;
-  const { sets, sizes, reference } = findStructure(file.document);
-  if (sets.length === 0) {
+  const structure = findStructure(file.document);
+  if (structure.sets.length === 0) {
     throw new FigmaError(
       'No sets found in the Figma file. The sync looks for pages named "Sets - …" with sections like "X01 · Name" that contain an "Art Masters" frame.',
     );
   }
 
   // 3. The art components and color references of every set.
-  const frameIds = sets.flatMap((s) => [s.artFrameId, ...(s.colorRefId ? [s.colorRefId] : [])]);
-  const framesResponse = await figmaGet<NodesResponse>(
-    `/v1/files/${key}/nodes?ids=${encodeURIComponent(frameIds.join(","))}&depth=2`,
+  const frames = await figmaGet<NodesResponse>(
+    `/v1/files/${key}/nodes?ids=${encodeURIComponent(frameIdsFor(structure).join(","))}&depth=2`,
   );
-  const frame = (id: string | null) => (id ? framesResponse.nodes[id]?.document : undefined);
 
   // 4. Outline, art box and tip geometry for each shape.
-  const shapeNames = SHAPES.filter((s) => reference[s]?.color);
-  const variantIds = shapeNames.flatMap((s) => [reference[s].color!, ...(reference[s].line ? [reference[s].line!] : [])]);
-  const geometryResponse = variantIds.length
+  const variantIds = geometryIdsFor(structure);
+  const geometry = variantIds.length
     ? await figmaGet<NodesResponse>(
         `/v1/files/${key}/nodes?ids=${encodeURIComponent(variantIds.join(","))}&depth=1&geometry=paths`,
       )
     : { nodes: {} };
 
-  const shapeRows = shapeNames
-    .map((shape, i) => {
-      const color = geometryResponse.nodes[reference[shape].color!]?.document;
-      const line = reference[shape].line ? geometryResponse.nodes[reference[shape].line!]?.document : undefined;
-      const geometry = color ? parseShapeGeometry(color, line) : null;
-      return geometry ? { shape, sort_order: i, geometry, sizes: sizes[shape] ?? {}, synced_at: new Date().toISOString() } : null;
-    })
-    .filter((row) => row !== null);
-
-  if (shapeRows.length > 0) {
-    const { error } = await supabase.from("trace_shapes").upsert(shapeRows);
-    if (error) throw new Error(error.message);
-  }
-
-  // 5. Sets: add or update, and remove the ones no longer in Figma.
-  const now = new Date().toISOString();
-  const setRows = sets.map((s) => {
-    const art = parseArtMasters(frame(s.artFrameId)!);
-    const ref = parseColorRef(frame(s.colorRefId));
-    const heroFinger = ref.heroFinger ?? FINGERS.find((f) => art[f]?.color) ?? "L-Ring";
-    return {
-      row: {
-        code: s.code,
-        name: s.name,
-        collection: s.collection,
-        description: ref.description,
-        palette: ref.palette,
-        fingers: ref.fingers,
-        hero_finger: heroFinger,
-        sort_order: s.sortOrder,
-        figma_node_id: s.figmaNodeId,
-        synced_at: now,
-      },
-      art,
-    };
-  });
-
-  const { data: savedSets, error: setsError } = await supabase
-    .from("trace_sets")
-    .upsert(setRows.map((s) => s.row), { onConflict: "code" })
-    .select("id, code");
-  if (setsError) throw new Error(setsError.message);
-  const idByCode = new Map((savedSets ?? []).map((s) => [s.code as string, s.id as string]));
-
-  const { data: allSets } = await supabase.from("trace_sets").select("id, code");
-  const staleIds = (allSets ?? []).filter((s) => !idByCode.has(s.code)).map((s) => s.id as string);
-  if (staleIds.length > 0) {
-    const { data: staleArt } = await supabase.from("trace_art").select("storage_path").in("set_id", staleIds);
-    const stalePaths = (staleArt ?? []).map((a) => a.storage_path).filter((p): p is string => !!p);
-    if (stalePaths.length) await supabase.storage.from(TRACE_BUCKET).remove(stalePaths);
-    await supabase.from("trace_sets").delete().in("id", staleIds);
-  }
-
-  // 6. One art row per finger and mode, pointing at its Figma component.
-  const artRows = setRows.flatMap(({ row, art }) =>
-    FINGERS.flatMap((finger) =>
-      (["color", "line"] as const).map((mode) => ({
-        set_id: idByCode.get(row.code)!,
-        finger,
-        mode,
-        figma_node_id: art[finger]?.[mode] ?? null,
-        pending_url: null,
-      })),
-    ),
+  const plan = buildPlan(
+    structure,
+    (id) => frames.nodes[id]?.document,
+    (id) => geometry.nodes[id]?.document,
   );
-  const { error: artError } = await supabase.from("trace_art").upsert(artRows, { onConflict: "set_id,finger,mode" });
-  if (artError) throw new Error(artError.message);
-
-  // Fingers with no art component in Figma: clear any old file.
-  const { data: missing } = await supabase
-    .from("trace_art")
-    .select("id, storage_path")
-    .is("figma_node_id", null)
-    .or("storage_path.not.is.null,content_hash.not.is.null");
-  await clearArt(missing ?? []);
-
-  const exportIds = artRows.map((a) => a.figma_node_id).filter((id): id is string => !!id);
-  return { status: "ready", version, fileName, exportIds, sets: setRows.length, shapes: shapeRows.length };
-}
-
-async function clearArt(rows: { id: string; storage_path: string | null }[]) {
-  if (rows.length === 0) return;
-  const supabase = createServiceRoleClient();
-  const paths = rows.map((r) => r.storage_path).filter((p): p is string => !!p);
-  if (paths.length) await supabase.storage.from(TRACE_BUCKET).remove(paths);
-  await supabase
-    .from("trace_art")
-    .update({ storage_path: null, content_hash: null, pending_url: null, updated_at: new Date().toISOString() })
-    .in(
-      "id",
-      rows.map((r) => r.id),
-    );
+  const saved = await applyPlan(plan);
+  const exportIds = saved.artRows.map((a) => a.figma_node_id).filter((id): id is string => !!id);
+  return { status: "ready", version, fileName, exportIds, sets: saved.sets, shapes: saved.shapes };
 }
 
 // Ask Figma for SVG links for a batch of art components. Components with
@@ -491,12 +397,7 @@ export async function exportBatch(ids: string[]) {
   return { exported: withLink.length, blank: blank.length };
 }
 
-function looksSafe(svg: string) {
-  return /<svg[\s>]/i.test(svg) && !/<script|\son[a-z]+\s*=|javascript:/i.test(svg);
-}
-
-// Copy a batch of exported SVGs into storage. A file only changes (and gets
-// a new name, so nothing serves a stale copy) when its contents changed.
+// Copy a batch of Figma's exported SVGs into storage.
 export async function downloadPending() {
   const supabase = createServiceRoleClient();
   const { data: rows } = await supabase
@@ -507,43 +408,18 @@ export async function downloadPending() {
 
   let failed = 0;
   let changed = 0;
-  const queue = [...(rows ?? [])];
-
-  async function work() {
-    for (let row = queue.shift(); row; row = queue.shift()) {
-      const set = row.trace_sets as unknown as { code: string } | null;
-      const svg = row.pending_url ? await downloadExport(row.pending_url) : null;
-      if (!svg || !looksSafe(svg) || !set) {
-        failed++;
-        await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
-        continue;
-      }
-      const hash = createHash("sha256").update(svg).digest("hex");
-      if (hash === row.content_hash && row.storage_path) {
-        await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
-        continue;
-      }
-      const path = `art/${set.code}/${row.finger}-${row.mode}-${hash.slice(0, 12)}.svg`;
-      const { error } = await supabase.storage
-        .from(TRACE_BUCKET)
-        .upload(path, new Blob([svg], { type: "image/svg+xml" }), { contentType: "image/svg+xml", upsert: true });
-      if (error) {
-        failed++;
-        await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
-        continue;
-      }
-      await supabase
-        .from("trace_art")
-        .update({ storage_path: path, content_hash: hash, pending_url: null, updated_at: new Date().toISOString() })
-        .eq("id", row.id);
-      if (row.storage_path && row.storage_path !== path) {
-        await supabase.storage.from(TRACE_BUCKET).remove([row.storage_path]);
-      }
-      changed++;
+  await inParallel(rows ?? [], async (row) => {
+    const set = row.trace_sets as unknown as { code: string } | null;
+    const svg = row.pending_url ? await downloadExport(row.pending_url) : null;
+    if (!svg || !set) {
+      failed++;
+      await supabase.from("trace_art").update({ pending_url: null }).eq("id", row.id);
+      return;
     }
-  }
-
-  await Promise.all(Array.from({ length: DOWNLOAD_CONCURRENCY }, work));
+    const result = await storeSvg(row, set.code, svg);
+    if (result === "changed") changed++;
+    if (result === "failed") failed++;
+  });
 
   const { count } = await supabase
     .from("trace_art")
@@ -552,6 +428,8 @@ export async function downloadPending() {
 
   return { processed: (rows ?? []).length, changed, failed, remaining: count ?? 0 };
 }
+
+// === Both ====================================================================
 
 export async function finishSync(version: string, fileName: string) {
   await createServiceRoleClient()

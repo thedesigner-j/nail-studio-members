@@ -16,7 +16,7 @@ Members-area web app for the nail business: a dollar-credit loyalty program, app
 - Look Book: members attach up to 3 photos to a past appointment; all members' photos appear in a shared Pinterest-style masonry grid where anyone can like a photo or save it into a personal collection
 - Early Access: admin-posted sales/product/event announcements, members-only, with an unread indicator in the nav
 - **Skill Projects**: practice projects the admin assigns to a nail tech (`/admin/skill-projects`). Each has a reference (a Look Book photo, an uploaded image or an outside link), tutorial links (YouTube plays in the app), a goals checklist, due date and priority. The tech works through them under **My Projects**: they submit photos plus links to videos hosted elsewhere, and the admin approves or sends the work back with feedback. Approved work forms the tech's portfolio. Give someone the tech role from the Clients page; an admin can be a tech too. Photos are kept in a private storage bucket and only shown through short-lived links.
-- **Trace**: a lightbox for tracing nail designs onto clear tips, for techs and admins (`/trace`). Pick a set, a finger, a shape and a size; the phone shows the design at real size inside a nail-shaped guide (after a one-time bank-card calibration). Drag, pinch, flip and turn it into place, lock it (a held button unlocks it, and the screen stays awake), lay a clear tip on the screen and trace. Techs can also trace their own photo, which never leaves the phone. The designs, nail shapes and sizes come from the studio's Figma file through Admin → Trace → **Sync from Figma** (see setup step 10).
+- **Trace**: a lightbox for tracing nail designs onto clear tips, for techs and admins (`/trace`). Pick a set, a finger, a shape and a size; the phone shows the design at real size inside a nail-shaped guide (after a one-time bank-card calibration). Drag, pinch, flip and turn it into place, lock it (a held button unlocks it, and the screen stays awake), lay a clear tip on the screen and trace. Techs can also trace their own photo, which never leaves the phone. The designs, nail shapes and sizes come from the studio's Figma file: a small Figma plugin exports them to a file that the admin imports in Admin → Trace (see setup step 10).
 - **Branding**: the studio name and logo are set in Admin → Branding (with a live preview) and used in the app and admin headers, the login screen and Webflow embed, the browser tab title, emails (including the sender name, so `EMAIL_FROM` only needs the address), referral messages and Google Calendar events.
 - Admin section (`/admin`, linked from the nav for accounts with `profiles.is_admin = true`): clients directory (bookings/spend/loyalty/referral stats per member), working hours, services & rates, early access posts, appointments (mark paid & completed, cancel, or no-show), booking & deposit settings, loyalty, and a messages inbox to reply to members' threads
 
@@ -114,7 +114,7 @@ Local data is throwaway. Anything that should exist in production (schema change
 
 ### 5. Environment variables
 
-Copy `.env.local.example` to `.env.local` and fill in the Supabase, Google, Stripe, and Resend values (and Figma's, for Trace: step 10).
+Copy `.env.local.example` to `.env.local` and fill in the Supabase, Google, Stripe, and Resend values (Figma's are optional: step 10).
 
 ### 6. Run it
 
@@ -151,15 +151,20 @@ When someone starts booking, the appointment is created immediately (holding the
 select cron.schedule('expire-stale-pending-appointments', '*/10 * * * *', $$select public.expire_stale_pending_appointments();$$);
 ```
 
-### 10. Figma (optional, for Trace designs)
+### 10. Figma (for Trace designs)
 
 Trace reads the studio's Figma file. It expects pages named `Sets - <Collection>` with one section per set named like `X01 · Candy Cane Lane`, each holding an `Art Masters` frame (components `Art/X01/L-Thumb` … and `… · Line` for the tracing lines) and an `X01 · Color Ref` frame (tips, palette, description), plus a `Nail` component set with `Shape / Size / Finger / Mode` variants drawn at real size.
 
-1. In Figma: profile picture → **Settings** → **Security** → **Personal access tokens** → **Generate new token**, with **File content** set to read-only.
-2. Set `FIGMA_ACCESS_TOKEN` (the token) and `FIGMA_FILE_KEY` (the part of the file link after `/design/`) in the app's environment, and run `0019_trace.sql`.
-3. Admin → Trace → **Sync from Figma**. It copies the art into the private `trace` storage bucket; later syncs stop right away if the file hasn't changed and only re-upload designs that did.
+**Import (recommended, no token).** The plugin in `figma-plugin/` only reads the file it's run in, so nothing else in the Figma account is exposed, and it isn't subject to Figma's API rate limits.
 
-Figma rate-limits reading a file by the plan that owns it. A full sync makes about six of the heavier calls; files on Figma's free plan only get a handful a month, so keep the file in a paid team if you sync often.
+1. Run `0019_trace.sql`.
+2. Admin → Trace → **Download the Figma plugin**, unzip it, and in the Figma desktop app: Figma menu → Plugins → Development → **Import plugin from manifest…** → choose `manifest.json`.
+3. In the nail file: Plugins → Development → **Nail Studio – Trace Export** → **Export**. It saves `nail-designs-<date>.json`.
+4. Admin → Trace → **Choose the exported file**. Only designs that changed are replaced; sets no longer in the file are removed.
+
+After editing the plugin, rebuild the download with `npm run plugin:zip`.
+
+**Sync (optional).** With `FIGMA_ACCESS_TOKEN` (Figma → Settings → Security → personal access token, File content read-only) and `FIGMA_FILE_KEY` set, Admin → Trace also shows **Sync from Figma**, which reads the same things through Figma's API. A personal access token can read every file its account can open, and Figma rate-limits these reads by the plan that owns the file (a full sync makes about six; free-plan files get only a handful a month).
 
 ## Embedding in Webflow
 

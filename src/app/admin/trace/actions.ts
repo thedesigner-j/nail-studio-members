@@ -4,22 +4,28 @@ import { revalidatePath } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { FigmaError, figmaConfig } from "@/lib/figma";
 import {
+  TraceImportError,
+  applyPlan,
   downloadPending,
   exportBatch,
   finishSync,
+  importSvgs,
   recordSyncError,
   startSync,
+  validatePlan,
+  type ImportItem,
   type StartResult,
 } from "@/lib/trace-sync";
 import { requireAdmin } from "../require-admin";
 
-// The sync runs as a few short steps driven by the admin page, so no single
-// request runs long. Every step re-checks the caller is an admin.
+// Both the import (from the Figma plugin's file) and the sync (through
+// Figma's API) run as a few short steps driven by the admin page, so no
+// single request runs long. Every step re-checks the caller is an admin.
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
 function friendly(error: unknown) {
-  if (error instanceof FigmaError) return error.message;
+  if (error instanceof FigmaError || error instanceof TraceImportError) return error.message;
   const message = error instanceof Error ? error.message : String(error);
   if (/trace_|relation .* does not exist|schema cache/i.test(message)) {
     return "Trace isn't set up in the database yet. Run the 0019_trace.sql update in Supabase first.";
@@ -28,7 +34,7 @@ function friendly(error: unknown) {
 }
 
 async function fail(error: unknown): Promise<{ ok: false; error: string }> {
-  if (!(error instanceof FigmaError)) console.error("Trace sync failed:", error);
+  if (!(error instanceof FigmaError || error instanceof TraceImportError)) console.error("Trace sync failed:", error);
   const message = friendly(error);
   try {
     await recordSyncError(message);
@@ -37,6 +43,29 @@ async function fail(error: unknown): Promise<{ ok: false; error: string }> {
   }
   return { ok: false, error: message };
 }
+
+// === Import ==================================================================
+
+export async function startTraceImport(plan: unknown): Promise<Result<{ sets: number; shapes: number }>> {
+  if (!(await requireAdmin())) return { ok: false, error: "You must be an admin to do that." };
+  try {
+    const saved = await applyPlan(validatePlan(plan));
+    return { ok: true, sets: saved.sets, shapes: saved.shapes };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function importTraceArt(items: ImportItem[]): Promise<Result<{ changed: number; failed: number }>> {
+  if (!(await requireAdmin())) return { ok: false, error: "You must be an admin to do that." };
+  try {
+    return { ok: true, ...(await importSvgs(Array.isArray(items) ? items : [])) };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+// === Sync ====================================================================
 
 export async function startTraceSync(force: boolean): Promise<Result<{ result: StartResult }>> {
   if (!(await requireAdmin())) return { ok: false, error: "You must be an admin to do that." };
