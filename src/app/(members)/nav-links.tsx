@@ -17,15 +17,21 @@ export default function NavLinks({
   hasNewEarlyAccess,
   hasUnreadMessages,
   isTech,
+  isAdmin,
   hasProjectUpdates,
 }: {
   hasNewEarlyAccess: boolean;
   hasUnreadMessages: boolean;
   isTech: boolean;
+  isAdmin: boolean;
   hasProjectUpdates: boolean;
 }) {
   const pathname = usePathname();
-  const items = isTech ? [...NAV_ITEMS, { href: "/my-projects", label: "My Projects" }] : NAV_ITEMS;
+  const items = [
+    ...NAV_ITEMS,
+    ...(isTech ? [{ href: "/my-projects", label: "My Projects" }] : []),
+    ...(isTech || isAdmin ? [{ href: "/trace", label: "Trace" }] : []),
+  ];
 
   return (
     <nav className="flex flex-wrap gap-1">
