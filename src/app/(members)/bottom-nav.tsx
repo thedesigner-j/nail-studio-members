@@ -16,6 +16,7 @@ import {
   GridIcon,
   LogoutIcon,
   BrushIcon,
+  TraceIcon,
 } from "./icons";
 
 type IconComponent = ComponentType<{ className?: string }>;
@@ -27,7 +28,7 @@ const PRIMARY_TABS: { href: string; label: string; icon: IconComponent }[] = [
   { href: "/loyalty", label: "Loyalty", icon: StarIcon },
 ];
 
-const MORE_ROUTES = ["/early-access", "/look-book", "/messages", "/my-projects", "/profile", "/admin"];
+const MORE_ROUTES = ["/early-access", "/look-book", "/messages", "/my-projects", "/trace", "/profile", "/admin"];
 
 export default function BottomNav({
   hasNewEarlyAccess,
@@ -89,6 +90,9 @@ export default function BottomNav({
                 badge={hasProjectUpdates}
                 onNavigate={() => setMoreOpen(false)}
               />
+            )}
+            {(isTech || isAdmin) && (
+              <MoreItem href="/trace" label="Trace" icon={TraceIcon} onNavigate={() => setMoreOpen(false)} />
             )}
             <MoreItem href="/profile" label="Profile" icon={UserIcon} onNavigate={() => setMoreOpen(false)} />
             {isAdmin && (

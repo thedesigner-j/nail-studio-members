@@ -125,3 +125,13 @@ export function BrushIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+// A nail with a dashed guide around it.
+export function TraceIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M8 19.5c0 1.5 8 1.5 8 0V9.5a4 4 0 0 0-8 0z" />
+      <path d="M5 8.5V20M19 8.5V20" strokeDasharray="2 2.5" />
+    </svg>
+  );
+}

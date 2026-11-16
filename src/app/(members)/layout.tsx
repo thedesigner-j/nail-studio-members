@@ -40,6 +40,7 @@ export default async function MembersLayout({ children }: { children: React.Reac
               hasNewEarlyAccess={hasNewEarlyAccess}
               hasUnreadMessages={hasUnreadMessages}
               isTech={isTech}
+              isAdmin={!!profile.is_admin}
               hasProjectUpdates={hasProjectUpdates}
             />
           </div>
